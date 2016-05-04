@@ -141,20 +141,24 @@ read.WSdata2 <- function(WSdata, ..., height = 2.2, lat, long, elev,
 
 
 #' Plot method for waterWeatherStation S3 class
-#' @param x        waterWeatherStation object. See read.WSdata()
-#' @param alldata  plot all data on waterWeatherStation object. If false, will
-#' only plot hourly data.
+#' @param x       waterWeatherStation object. See read.WSdata()
+#' @param hourly  If TRUE will plot only hourly data, instead of all data 
+#' from the waterWeatherStation object
+#' @param sat     If TRUE, and if the waterWeatherStation object was created
+#' using a Landsat Metadata File, will plot only data from day of the satellite
+#' overpass 
 #' @param ...      additional parameters to pass to plot()
 #' @author Guillermo Federico Olmedo
 #' @importFrom utils read.csv
 #' @importFrom graphics abline axis axis.POSIXct mtext par points
 #' @export
 #' @method plot waterWeatherStation
-plot.waterWeatherStation <- function(x, alldata=TRUE, ...){
+plot.waterWeatherStation <- function(x, hourly=FALSE, sat=TRUE, ...){
   # Based on http://evolvingspaces.blogspot.cl/2011/05/multiple-y-axis-in-r-plot.html
   WSp <- x$hourly
   atsat  <- as.POSIXct(x$at.sat$datetime)
-  if(alldata == TRUE) {WSp <- x$alldata}
+  if(hourly == FALSE) {WSp <- x$alldata}
+  if(sat == TRUE & atsat > 0){WSp <- WSp[as.Date(WSp$datetime) == as.Date(atsat),]}
   time <- WSp$datetime
   graphics::par(mar=c(5, 7, 4, 7) + 0.1)
   plot(time, WSp$radiation, axes=F, ylim=c(0,max(WSp$radiation)), xlab="", 
@@ -195,7 +199,7 @@ plot.waterWeatherStation <- function(x, alldata=TRUE, ...){
 #' @method print waterWeatherStation
 print.waterWeatherStation <- function(x, ...){
   cat("Weather Station at lat:", round(x$location$lat, 2), "long:", 
-      round(x$location$lat, 2), "elev:", round(x$location$elev, 2), "\n")
+      round(x$location$long, 2), "elev:", round(x$location$elev, 2), "\n")
   cat("Summary:\n")
   print(summary(x$alldata[,2:6]), ...)
   if(!is.null(x$at.sat)){
