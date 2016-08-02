@@ -6,7 +6,8 @@
 #' @param long.z             longitude for local time
 #' @param ET.instantaneous   Logical. True if you want to calculate 
 #' instantaneous ET instead of hourly ET. See Details.
-#' @param ET                 "ETo" or "ETr"
+#' @param ET       "ETo" for short crops, similar to clipped, cool-season
+#' grass; or "ETr" for tall crops, similar to 0.5 m tall full-cover alfalfa.
 #' @param height             weather station sensors height in meters
 #' @param lat                latitude of weather station in decimal degrees. 
 #' Negative values for south latitude
@@ -33,7 +34,7 @@
 #' @references 
 #' Allen 2005 ASCE
 hourlyET <- function(WeatherStation, hours, DOY, long.z=WeatherStation$long, 
-                     ET.instantaneous=FALSE, ET="ETo", height=2, lat, long, elev){
+                     ET.instantaneous=FALSE, ET="ETr", height=2, lat, long, elev){
   if(class(WeatherStation)== "waterWeatherStation"){
     if(!is.null(WeatherStation$at.sat)){
       WeatherStation <- getDataWS(WeatherStation)
@@ -105,7 +106,7 @@ hourlyET <- function(WeatherStation, hours, DOY, long.z=WeatherStation$long,
   return(ET.hourly)
 }
 
-#' Calculates ET-24hs from energy balance and Weather Station 
+#' Calculates daily ET from a surface energy balance and Weather Station 
 #' @param Rn             Net radiation. See netRadiation()
 #' @param G              Soil Heat Flux. See soilHeatFlux()
 #' @param H              Sensible Heat Flux. See calcH()
@@ -129,10 +130,10 @@ ET24h <- function(Rn, G, H, Ts, WeatherStation, ETr.daily, C.rad=1){
   ETo.hourly <- hourlyET(WeatherStation, WeatherStation$hours, WeatherStation$DOY)
   ETr.Fr <- ET.inst/ETo.hourly
   ET.24 <- ETr.Fr * ETr.daily * C.rad
-  #ET.24[ET.24 < 0]  <- 0
+  ET.24[ET.24 < 0]  <- 0
   #ET.24[ET.24 > quantile(ET.24, 0.9)] <- quantile(ET.24, 0.9)
   rgb.palette <- grDevices::colorRampPalette(c("red3","snow2","blue"),  space = "rgb")
-  print(spplot(ET.24, col.regions=rgb.palette, main= "24-Hour Evapotranspiration (mm/day)",
+  print(spplot(ET.24, scales=list(draw=TRUE), xlab="Easting", ylab="Northing", col.regions=rgb.palette, main= "24-Hour Evapotranspiration (mm/day)",
                colorkey=list(height=1), at=seq(0,ceiling(ETr.daily*1.5),length.out=50), maxpixels=ncell(ET.24) * 0.3))
   saveLoadClean(imagestack = ET.24, 
                 file = "ET24", overwrite=TRUE)
@@ -146,8 +147,14 @@ ET24h <- function(Rn, G, H, Ts, WeatherStation, ETr.daily, C.rad=1){
 #' @param lat      latitude in decimal degrees of the weather station
 #' @param long     longitude in decimal degrees of the weather station
 #' @param elev     elevation in meters of the weather station
-#' @param ET       "ETo" or "ETr"
+#' @param ET       "ETo" for short crops, similar to clipped, cool-season
+#' grass; or "ETr" for tall crops, similar to 0.5 m tall full-cover alfalfa.
 #' @param long.z   longitude for local time
+#' @param MTL      Metadata file. If not provided will look for one on
+#' working directory. If provided or present will calculate weather conditions
+#' on satellite overpass.
+#' @param date     if date == "auto" will use a MTL file provided or present in 
+#' the working folder to select the date.
 #' @return ET      daily in mm.h-1
 #' @author Guillermo Federico Olmedo
 #' @export
@@ -162,21 +169,45 @@ ET24h <- function(Rn, G, H, Ts, WeatherStation, ETr.daily, C.rad=1){
 #' dailyET(WeatherStation = WeatherStation, lat=-35.422, long=-71.386, elev=124, 
 #' ET="ETo")
 #' 
-dailyET <- function(WeatherStation, DOY, height, lat, long, elev, ET="ETo", 
-                       long.z=WeatherStation$long){
+dailyET <- function(WeatherStation, DOY, height, lat, long, elev, ET="ETr", 
+                    long.z=WeatherStation$long, date = "auto", MTL){
   if(class(WeatherStation)== "waterWeatherStation"){
     if(missing(height)){height <- WeatherStation$location$height}
     if(missing(lat)){lat <- WeatherStation$location$lat}
     if(missing(long)){long <- WeatherStation$location$long}
     if(missing(elev)){elev <- WeatherStation$location$elev}
-    ET.daily <- vector()
-    for(i in 1:24){
-      date <- as.POSIXlt(WeatherStation$hourly[i,1], format="%Y-%m-%d %H:%M:%S")
-      ET.daily <- c(ET.daily, hourlyET(WeatherStation$hourly[i,], lat=lat, 
-                                      long = long, elev=elev, ET=ET, 
-                                      height = height))
+    
+    ## Join with satellite data
+    if(missing(MTL)){MTL <- list.files(pattern = "MTL.txt", full.names = T)}
+    if(length(MTL)!=0){  ## TODO: Check if MTL date is inside WS data
+      MTL <- readLines(MTL, warn=FALSE)
+      date.line <- grep("DATE_ACQUIRED",MTL,value=TRUE)
+      sat.date <-regmatches(date.line,regexec(text=date.line,
+                                              pattern="([0-9]{4})(-)([0-9]{2})(-)([0-9]{2})"))[[1]][1]
+      sat.date <- strptime(sat.date,  
+                           format = "%Y-%m-%d", tz="GMT")
+      if(date == "auto"){
+        data <- WeatherStation$hourly[as.character(trunc(WeatherStation$hourly$datetime, "days")) == 
+                                        as.character(as.Date(sat.date)),]
+      }  else {
+        data <- WeatherStation$hourly[as.Date(WeatherStation$hourly$datetime) == as.Date(date),]
       }
-  } else {
-  print("not yet")}
+      ET.daily <- vector()
+      for(i in 1:24){
+          ET.daily <- c(ET.daily, hourlyET(data[i,], lat=lat, 
+                                           long = long, elev=elev, ET=ET, 
+                                           height = height))
+        }
+    }
+    if(length(MTL)==0){
+      ET.daily <- vector()
+      for(i in 1:24){
+        date <- as.POSIXlt(WeatherStation$hourly[i,1], format="%Y-%m-%d %H:%M:%S")
+        ET.daily <- c(ET.daily, hourlyET(WeatherStation$hourly[i,], lat=lat, 
+                                         long = long, elev=elev, ET=ET, 
+                                         height = height))
+      }
+  }} else {
+    print("not implemented yet")}
   return(sum(ET.daily))
 }

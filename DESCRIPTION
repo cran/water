@@ -1,7 +1,7 @@
 Package: water
 Title: Actual Evapotranspiration with Energy Balance Models
-Version: 0.3.2
-Date: 2016-05-03
+Version: 0.5
+Date: 2016-08-01
 Author: Guillermo Federico Olmedo [aut, cre], Samuel Ortega-Farias [aut],
     David Fonseca-Luengo [aut], Daniel de la Fuente-Saiz [aut], Fernando Fuentes
     Peñailillo [aut]
@@ -12,7 +12,7 @@ Depends: R (>= 3.0), raster (>= 2.4-18), sp (>= 1.1-1), rgdal (>=
         1.0-4)
 Imports:
 License: GPL (>= 2)
-URL: https://github.com/midraed/water
+URL: http://midraed.github.io/water
 BugReports: https://github.com/midraed/water/issues
 LazyData: true
 Suggests: knitr, rmarkdown
@@ -20,6 +20,6 @@ VignetteBuilder: knitr
 RoxygenNote: 5.0.1
 Encoding: UTF-8
 NeedsCompilation: no
-Packaged: 2016-05-03 17:12:08 UTC; guillermo
+Packaged: 2016-08-01 22:02:15 UTC; guillermo
 Repository: CRAN
-Date/Publication: 2016-05-04 07:56:48
+Date/Publication: 2016-08-02 00:23:48

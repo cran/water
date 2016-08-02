@@ -4,25 +4,31 @@
 \alias{calcH}
 \title{Iterative function to estimate H and R.ah}
 \usage{
-calcH(anchors, Ts, Z.om, WeatherStation, ETp.coef = 1.05, Z.om.ws = 0.0018,
-  mountainous = FALSE, DEM, Rn, G, verbose = FALSE)
+calcH(anchors, method = "mean", Ts, Z.om, WeatherStation, ETp.coef = 1.05,
+  Z.om.ws = 0.03, mountainous = FALSE, DEM, Rn, G, verbose = FALSE,
+  maxit = 20)
 }
 \arguments{
 \item{anchors}{anchors points. Can be the result from calcAnchors() or
 a spatialPointDataframe o Dataframe with X, Y, and type. type should be 
 "cold" or "hot"}
 
+\item{method}{Method when using more than 1 pair of anchors pixels. 
+method = "mean" will use the mean value for the cold pixels vs the mean value
+for the hot pixels.}
+
 \item{Ts}{Land surface temperature in K. See surfaceTemperature()}
 
 \item{Z.om}{momentum roughness lenght. See momentumRoughnessLength()}
 
-\item{WeatherStation}{WeatherStation data at the flyby from the satellite. 
-Can be a waterWeatherStation object calculate using read.WSdata and MTL file}
+\item{WeatherStation}{WeatherStation data at the satellite overpass. 
+Can be a waterWeatherStation object calculated using read.WSdata and MTL file}
 
 \item{ETp.coef}{ETp coefficient usually 1.05 or 1.2 for alfalfa}
 
 \item{Z.om.ws}{momentum roughness lenght for WeatherStation. Usually
-0.0018 or 0.03 for long grass}
+a value of 0.03 might be reasonable for a typical agricultural weather station 
+sited over vegetation that is about 0.3 m tall.  For clipped grass, use 0.015 m}
 
 \item{mountainous}{Logical. If TRUE heat transfer equation will be 
 adjusted for mountainous terrain}
@@ -35,6 +41,8 @@ adjusted for mountainous terrain}
 
 \item{verbose}{Logical. If TRUE will print information about every 
 iteration to console}
+
+\item{maxit}{Maximun number of iteration. Default 20.}
 }
 \description{
 generates an iterative solution to estimate r.ah and H because both are unknown at each pixel.

@@ -5,8 +5,8 @@
 \title{Select anchors pixels for H function}
 \usage{
 calcAnchors(image, Ts, LAI, albedo, Z.om, n = 1, aoi,
-  anchors.method = "CITRA-MCB", plots = TRUE, deltaTemp = 5,
-  verbose = FALSE)
+  anchors.method = "CITRA-MCBbc", WeatherStation, plots = TRUE,
+  deltaTemp = 5, buffer = 500, verbose = FALSE)
 }
 \arguments{
 \item{image}{top-of-atmosphere landsat reflectance image}
@@ -24,13 +24,22 @@ calcAnchors(image, Ts, LAI, albedo, Z.om, n = 1, aoi,
 \item{aoi}{area of interest to limit the search. If 
 waterOptions(autoAOI) == TRUE, It'll use aoi object from .GlobalEnv}
 
-\item{anchors.method}{method to select anchor pixels. Currently only 
-"CITRA-MCB" automatic method available.}
+\item{anchors.method}{method for the selection of anchor pixels. "CITRA-MCBr" for
+random selection of hot and cold candidates according to CITRA-MCB method, or 
+"CITRA-MCBbc" for selecting the best candidates}
+
+\item{WeatherStation}{Optional. WeatherStation data at the satellite overpass. 
+Should be a waterWeatherStation object calculated using read.WSdata and MTL file.
+If you provide a WeatherStation object it will restrict the location of anchors
+pixels to less than 30 km away from it.}
 
 \item{plots}{Logical. If TRUE will plot position of anchors points
-selected}
+selected. Points in red are selected hot pixels, blue are the cold ones and the 
+black represents the position of the Weather Station}
 
-\item{deltaTemp}{deltaTemp for method "CITRA-MCB"}
+\item{deltaTemp}{deltaTemp for method "CITRA-MCBs" or "CITRA-MCBr"}
+
+\item{buffer}{minimun distance allowed for two anchor pixels of the same kind}
 
 \item{verbose}{Logical. If TRUE will print aditional data to console}
 }
