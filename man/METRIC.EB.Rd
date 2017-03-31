@@ -4,14 +4,19 @@
 \alias{METRIC.EB}
 \title{Estimates Energy Balance using METRIC2010 Model}
 \usage{
-METRIC.EB(image.DN, WeatherStation, MTL, sat = "auto", thermalband,
+METRIC.EB(image.DN, image.SR, WeatherStation, MTL, sat = "auto", thermalband,
   plain = TRUE, DEM, aoi, alb.coeff = "Tasumi", LST.method = "SC",
   LAI.method = "metric2010", Zom.method = "short.crops",
   anchors.method = "CITRA-MCB", n = 1, ETp.coef = 1.05,
-  Z.om.ws = 0.0018, ESPA = FALSE, verbose = FALSE)
+  Z.om.ws = 0.0018, verbose = FALSE)
 }
 \arguments{
 \item{image.DN}{raw imagen in digital counts to evaluate}
+
+\item{image.SR}{L8 ONLY. Surface reflectance imagen. water package does not 
+include a model to calculate surface reflectance for Landsat 8 images. Landsat 8 users 
+should download precalculated surface reflectances from espa website 
+(espa.cr.usgs.gov).}
 
 \item{WeatherStation}{Weather Station data, can be a waterWeatherStation 
 object}
@@ -54,9 +59,6 @@ Perrier equation as in Santos et al (2012) and Pocas et al (2014).}
 \item{Z.om.ws}{momentum roughness lenght for WeatherStation. Usually
 0.0018 or 0.03 for long grass}
 
-\item{ESPA}{Logical. If TRUE will look for espa.usgs.gov related 
-products on working folder}
-
 \item{verbose}{Logical. If TRUE will print aditional data to console}
 }
 \description{
@@ -68,10 +70,9 @@ You can choose alb.coeff ="Tasumi" to use Tasumi et al (2008) coefficients,
 calculated for Landsat 7; alb.coeff ="Liang" to use Liang Landsat 7 
 coefficients or "Olmedo" to use Olmedo coefficients for Landsat 8.
 }
-\author{
-Guillermo F Olmedo, \email{guillermo.olmedo@gmail.com}
-}
 \references{
 R. G. Allen, M. Tasumi, and R. Trezza, "Satellite-based energy balance for mapping evapotranspiration with internalized calibration (METRIC) - Model" Journal of Irrigation and Drainage Engineering, vol. 133, p. 380, 2007
 }
-
+\author{
+Guillermo F Olmedo, \email{guillermo.olmedo@gmail.com}
+}

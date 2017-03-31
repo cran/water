@@ -11,7 +11,7 @@ read.WSdata(WSdata, ..., height = 2.2, lat, long, elev, columns = c("date",
   MTL)
 }
 \arguments{
-\item{WSdata}{csv file with weather station data}
+\item{WSdata}{csv file with weather station data or data.frame}
 
 \item{...}{additional parameter to pass to read.csv()}
 
@@ -26,7 +26,7 @@ Negative values for west longitude}
 \item{elev}{elevation of weather station in meters}
 
 \item{columns}{columns order of needed data. Vector containing 
-"date", "time", "radiation", "wind", "RH" and "temp". Other values are 
+"date", "time", "radiation", "wind", "RH", "temp" and "rain". Other values are 
 ignored. If you have a column with date and time in the same column, you can
 include "datetime" and "date" and "time" are no longer needed.}
 
@@ -68,11 +68,10 @@ print(WS)
 plot(WS, alldata=FALSE)
 plot(WS, alldata=TRUE)
 }
-\author{
-Guillermo Federico Olmedo
-}
 \references{
 Landsat 7 Metadata example file available from the U.S. Geological Survey.
 Weather Station example file courtesy of CITRA, Universidad de Talca, Chile
 }
-
+\author{
+Guillermo Federico Olmedo
+}

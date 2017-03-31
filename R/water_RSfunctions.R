@@ -2,7 +2,8 @@
 #' @description
 #' This function loads Landsat bands from a specific folder. 
 #' @param path  folder where band files are stored
-#' @param sat   "L7" for Landsat 7, "L8" for Landsat 8 or "auto" to guess from filenames
+#' @param sat   "L7" for Landsat 7, "L8" for Landsat 8, "MODIS" for MODIS or 
+#' "auto" to guess from filenames
 #' @param aoi   area of interest to crop images, if waterOptions("autoAoi") == 
 #' TRUE will look for any object called aoi on .GlobalEnv
 #' @author Guillermo Federico Olmedo
@@ -11,31 +12,60 @@
 #' R. G. Allen, M. Tasumi, and R. Trezza, "Satellite-based energy balance for mapping evapotranspiration with internalized calibration (METRIC) - Model" Journal of Irrigation and Drainage Engineering, vol. 133, p. 380, 2007 \cr
 #' @export
 loadImage <-  function(path = getwd(), sat="auto", aoi){
+  ## TODO: For L8 i should load the sirfrefl directly, like in MODIS!
   if(sat=="auto"){sat = getSat(path)} #DRY!
   if(sat=="L8"){bands <- c(2:7, 10, 11)}
   if(sat=="L7"){bands <- c(1:5,7, 6)}
-  stack1 <- list()
-  
+  if(sat=="MODIS"){bands <- c(1:7)}
   ## Check for more than 1 image on the same folder
-  image_list <- list.files(path=path, pattern = paste0("^L[EC]\\d+\\w+\\d+_(B|band)",
-                                         bands[1] ,".(TIF|tif)$"))
-  if(length(image_list) > 1) {
-    image_pattern <- substr(image_list[[1]], 0, nchar(image_list[[1]])-5)
-    warning(paste("More than 1 image present on path. Using", 
-                  substr(image_pattern, 0, nchar(image_pattern)-2)))
-  } else {
-    image_pattern <- substr(image_list[[1]], 0, nchar(image_list[[1]])-5)
+  if(sat=="L8" | sat=="L7"){
+    image_list <- list.files(path=path, pattern = paste0("^L[EC]\\d+\\w+\\d+_(b|B|band)",
+                                                         bands[1] ,".(TIF|tif)$"))
+    if(length(image_list) > 1) {  ## Check if there are more images present on folder
+      image_pattern <- substr(image_list[[1]], 0, nchar(image_list[[1]])-5)
+      warning(paste("More than 1 image present on path. Using", 
+                    substr(image_pattern, 0, nchar(image_pattern)-2)))
+    } else {
+      image_pattern <- substr(image_list[[1]], 0, nchar(image_list[[1]])-5)
+    }
+    bandnames <- c("B", "G", "R", "NIR", "SWIR1", "SWIR2", "Thermal1")
+    if(sat=="L8"){bandnames <- c(bandnames, "Thermal2")}
+  }
+  if(sat=="MODIS"){
+    image_list <- list.files(path=path, pattern = paste0(".sur_refl_b0",
+                                                         bands[1] ,"_1.(TIF|tif)$"))
+    if(length(image_list) > 1) { ## Check if there are more images present on folder
+      image_pattern <- substr(image_list[[1]], 0, nchar(image_list[[1]])-7)
+      warning(paste("More than 1 image present on path. Using", 
+                    substr(image_pattern, 0, nchar(image_pattern)-2)))
+    } else {
+      image_pattern <- substr(image_list[[1]], 0, nchar(image_list[[1]])-7)
+    }
+    bandnames <- c("R", "NIR", "B", "G", "SWIR1", "SWIR2", "SWIR3", "LST", "Time") # band names for MOD09GA
   }
   
+  stack1 <- list()
   for(i in 1:length(bands)){
     stack1[i] <- raster(list.files(path=path, 
-                                   pattern = paste0(image_pattern, bands[i], "(_VCID_1)?",
+                                   pattern = paste0(image_pattern, bands[i], "(_1)?", "(_VCID_1)?",
                                                     ".(TIF|tif)$"), full.names = T))
   }
-  bandnames <- c("B", "G", "R", "NIR", "SWIR1", "SWIR2", "Thermal1")
-  if(sat=="L8"){bandnames <- c(bandnames, "Thermal2")}
+  if(sat == "MODIS"){
+    thermal <- list.files(path=path, pattern = paste0(".LST_Day_1km",
+                                                      ".(TIF|tif)$"), full.names = T)[1]
+    stack1[8] <- raster(thermal)
+    time <- list.files(path=path, pattern = paste0(".Day_view_time",
+                                                      ".(TIF|tif)$"), full.names = T)[1]
+    stack1[9] <- raster(time)
+  }
   raw.image <- do.call(stack, stack1)
-  raw.image <- aoiCrop(raw.image, aoi)                               
+  raw.image <- aoiCrop(raw.image, aoi)
+  if(sat=="MODIS"){for(i in 1:7){
+    raw.image[[i]] <- raw.image[[i]]*0.0001
+  }
+    raw.image[[8]] <- raw.image[[8]]*0.02
+    raw.image[[9]] <- raw.image[[9]]*0.1
+  }
   raw.image <- saveLoadClean(imagestack = raw.image, 
                              stack.names = bandnames, 
                              file = "imageDN", 
@@ -43,12 +73,37 @@ loadImage <-  function(path = getwd(), sat="auto", aoi){
   return(raw.image) 
 }  
 
+
+
+#' Load Landsat 8 surface reflectance data from folder
+#' @description
+#' This function loads Landsat bands from a specific folder. 
+#' @param path  folder where band files are stored
+#' @param aoi   area of interest to crop images, if waterOptions("autoAoi") == 
+#' TRUE will look for any object called aoi on .GlobalEnv
+#' @author Guillermo Federico Olmedo
+#' @export
+loadImageSR <-  function(path = getwd(),  aoi){
+  files <- list.files(path = path, pattern = "_sr_band+[2-7].tif$", full.names = T)
+  stack1 <- list()
+  for(i in 1:6){
+    stack1[i] <- raster(files[i])}
+  image_SR <- do.call(stack, stack1)
+  image_SR <- aoiCrop(image_SR, aoi) 
+  image_SR <- image_SR / 10000
+  bandnames <- c("B", "G", "R", "NIR", "SWIR1", "SWIR2")
+  image_SR <- saveLoadClean(imagestack = image_SR, 
+                             stack.names = bandnames, 
+                             file = "image_SR", 
+                             overwrite=TRUE)
+  return(image_SR)}  
+
+
 #' Calculates Top of atmosphere reflectance
 #' @description
 #' This function calculates the TOA (Top Of Atmosphere) reflectance considering only the image metadata.
 #' @param image.DN      raw image in digital numbers
 #' @param sat           "L7" for Landsat 7, "L8" for Landsat 8 or "auto" to guess from filenames 
-#' @param ESPA          Logical. If TRUE will look for espa.usgs.gov related products on working folder
 #' @param aoi           area of interest to crop images, if waterOptions("autoAoi") == TRUE will look for any object called aoi on .GlobalEnv
 #' @param incidence.rel solar incidence angle, considering the relief
 #' @param MTL           Landsat Metadata File
@@ -60,20 +115,14 @@ loadImage <-  function(path = getwd(), sat="auto", aoi){
 #' LPSO. (2004). Landsat 7 science data users handbook, Landsat Project Science Office, NASA Goddard Space Flight Center, Greenbelt, Md., (http://landsathandbook.gsfc.nasa.gov/) (Feb. 5, 2007) \cr
 #' @export
 calcTOAr <- function(image.DN, sat="auto", 
-                     ESPA=FALSE, aoi, incidence.rel, MTL){
+                     aoi, incidence.rel, MTL){
   path = getwd()
   if(sat=="auto"){sat = getSat(path)}
   if(sat=="L8"){bands <- 2:7}
   if(sat=="L7"){bands <- c(1:5,7)}
-  if(ESPA==TRUE & sat=="L8"){
-    files <- list.files(path = path, pattern = "_toa_band+[2-7].tif$", full.names = T)
-    stack1 <- list()
-    for(i in 1:6){
-      stack1[i] <- raster(files[i])
-    }
-    image_TOA <- do.call(stack, stack1)
-    image_TOA <- aoiCrop(image_TOA, aoi)
-    image_TOA <- image_TOA / 10000
+  if(sat=="L8"){
+    image_TOA <- ((2.0000E-05 * image.DN[[1:6]]) + -0.100000) / incidence.rel  ### There is a small difference with ESPA TOA of less than 0.02
+    names(image_TOA) <- names(image.DN[[1:6]])
   }
   ### Ro TOA L7
   if(sat=="L7"){
@@ -115,7 +164,6 @@ calcTOAr <- function(image.DN, sat="auto",
 #' Calculates surface reflectance from top of atmosphere radiance using the model developed by Tasumi et al. (2008) and Allen et al. (2007), which considers a band-by-band basis.
 #' @param image.TOAr      raster stack. top of atmosphere reflectance image
 #' @param sat             "L7" for Landsat 7, "L8" for Landsat 8 or "auto" to guess from filenames 
-#' @param ESPA            Logical. If TRUE will look for espa.usgs.gov related products on working folder
 #' @param aoi             area of interest to crop images, if waterOptions("autoAoi") == TRUE will look for any object called aoi on .GlobalEnv
 #' @param incidence.hor   solar incidence angle, considering plain surface
 #' @param WeatherStation  Weather Station data
@@ -128,26 +176,18 @@ calcTOAr <- function(image.DN, sat="auto",
 #' R. G. Allen, M. Tasumi, and R. Trezza, "Satellite-based energy balance for mapping evapotranspiration with internalized calibration (METRIC) - Model" Journal of Irrigation and Drainage Engineering, vol. 133, p. 380, 2007 \cr
 #' @export
 # incidence hor from TML?? 
-calcSR <- function(image.TOAr, sat="auto", ESPA=FALSE, aoi, incidence.hor, 
+calcSR <- function(image.TOAr, sat="auto", aoi, incidence.hor, 
                    WeatherStation, surface.model){
   if(class(WeatherStation)== "waterWeatherStation"){
     WeatherStation <- getDataWS(WeatherStation)
   }
   path <- getwd()
   if(sat=="auto"){sat = getSat(path)}
-  if(sat=="L8"){bands <- 2:7}
-  if(sat=="L7"){bands <- c(1:5,7)}
-  if(ESPA==TRUE & sat=="L8"){
-    files <- list.files(path = path, pattern = "_sr_band+[2-7].tif$", full.names = T)
-    stack1 <- list()
-    for(i in 1:6){
-      stack1[i] <- raster(files[i])
-    }
-    image_SR <- do.call(stack, stack1)
-    image_SR <- aoiCrop(image_SR, aoi) 
-    image_SR <- image_SR / 10000
-  }
+  if(sat=="L8"){stop("water package does not include a model to calculate surface reflectance 
+  for Landsat 8 images. Landsat 8 users should download precalculated surface reflectances from 
+  espa website (espa.cr.usgs.gov). ")}
   if(sat=="L7"){
+    bands <- c(1:5,7)
     if(missing(image.TOAr)){image.TOAr <- calcTOAr()}
     P <- 101.3*((293-0.0065 * surface.model$DEM)/293)^5.26
     ea <- (WeatherStation$RH/100)*0.6108*exp((17.27*WeatherStation$temp)/(WeatherStation$temp+237.3))

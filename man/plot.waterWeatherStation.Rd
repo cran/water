@@ -4,7 +4,7 @@
 \alias{plot.waterWeatherStation}
 \title{Plot method for waterWeatherStation S3 class}
 \usage{
-\method{plot}{waterWeatherStation}(x, hourly = FALSE, sat = TRUE, ...)
+\method{plot}{waterWeatherStation}(x, hourly = FALSE, sat = TRUE, date, ...)
 }
 \arguments{
 \item{x}{waterWeatherStation object. See read.WSdata()}
@@ -16,6 +16,8 @@ from the waterWeatherStation object}
 using a Landsat Metadata File, will plot only data from day of the satellite
 overpass}
 
+\item{date}{When sat = FALSE, the date to plot in a multi-day object}
+
 \item{...}{additional parameters to pass to plot()}
 }
 \description{
@@ -24,4 +26,3 @@ Plot method for waterWeatherStation S3 class
 \author{
 Guillermo Federico Olmedo
 }
-

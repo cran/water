@@ -1,5 +1,5 @@
 #' Prepares weather station data
-#' @param WSdata             csv file with weather station data
+#' @param WSdata             csv file with weather station data or data.frame
 #' @param ...                additional parameter to pass to read.csv()
 #' @param height             weather station sensors height in meters
 #' @param lat                latitude of weather station in decimal degrees. 
@@ -8,7 +8,7 @@
 #' Negative values for west longitude
 #' @param elev               elevation of weather station in meters
 #' @param columns            columns order of needed data. Vector containing 
-#' "date", "time", "radiation", "wind", "RH" and "temp". Other values are 
+#' "date", "time", "radiation", "wind", "RH", "temp" and "rain". Other values are 
 #' ignored. If you have a column with date and time in the same column, you can
 #' include "datetime" and "date" and "time" are no longer needed.
 #' @param date.format        date format. See strptime format argument.
@@ -47,9 +47,13 @@ read.WSdata <- function(WSdata, ..., height = 2.2, lat, long, elev,
                         date.format = "%Y-%m-%d", time.format = "%H:%M:%S", 
                         datetime.format = "%Y-%m-%d %H:%M:%S", tz = "",
                         cf = c(1, 1, 1), MTL){
+  if("pp" %in% columns){columns[columns == "pp"] <- "rain"}  ## TODO: deprecated "pp"
+  if(class(WSdata) == "character"){WSdata <- utils::read.csv(WSdata, ...)}
+  else if(class(WSdata) == "data.frame"){WSdata <- WSdata}
+  else stop("WSdata should be a character string with the name of the csv file
+  or a data.frame with the WS data")
   result <- list()
   result$location <- data.frame(lat=lat, long=long, elev=elev, height=height)
-  WSdata <- utils::read.csv(WSdata, ...)
   if("date" %in% columns & "time" %in% columns){
     datetime  <- paste(WSdata[, which(columns == "date")], 
                        WSdata[, which(columns == "time")])
@@ -61,15 +65,57 @@ read.WSdata <- function(WSdata, ..., height = 2.2, lat, long, elev,
       datetime <- strptime(datetime, format = datetime.format, tz = tz)
     } else {message("ERROR: date and time or datetime are needed columns")}
   }
+  if("rain" %in% columns){rain = WSdata[, which(columns == "rain")]}
+  else rain = NA
   radiation = WSdata[, which(columns == "radiation")] * cf[1]
   wind =  WSdata[, which(columns == "wind")] * cf[2]
   RH =  WSdata[, which(columns == "RH")]
   temp =  WSdata[, which(columns == "temp")] * cf[3]
   ea = (RH/100)*0.6108*exp((17.27*temp)/(temp+237.3))
   WSdata <- data.frame(datetime=datetime, radiation=radiation, wind=wind,
-                       RH=RH, ea=ea, temp=temp)
+                       RH=RH, ea=ea, temp=temp, rain=rain)
   result$alldata <- WSdata
-  result$hourly <- WSdata[datetime$min==0,] 
+  ## Daily
+  WSdata$date <- as.Date(WSdata$datetime, tz = tz)
+  result$daily <- data.frame(date=unique(WSdata$date), 
+                             radiation_sum=tapply(WSdata$radiation, WSdata$date, sum),
+                             wind_mean=tapply(WSdata$wind, WSdata$date, mean),
+                             RH_mean=tapply(WSdata$RH, WSdata$date, mean),
+                             temp_mean=tapply(WSdata$temp, WSdata$date, mean),
+                             temp_max=tapply(WSdata$temp, WSdata$date, max),
+                             temp_min=tapply(WSdata$temp, WSdata$date, min),
+                             ea_mean=tapply(WSdata$ea, WSdata$date, mean),
+                             rain_sum=tapply(WSdata$rain, WSdata$date, sum))
+  ## Hourly
+
+  result$hourly <- list()
+  datetime <- as.POSIXlt(WSdata$datetime)
+  if(datetime[1]$min==0 & datetime[1]$sec==0){
+    first = datetime[1]
+  } else {
+    first <- datetime[1] + 3600 - datetime$min[1] * 60 - datetime$sec[1]
+  }
+    
+  sequence <- seq.POSIXt(from=first, to = tail(datetime,1),by= "1 hour")
+  # Time interpolation
+  for(i in 1:length(sequence)){
+    if(sum(as.numeric(sequence[i] == datetime)) > 0) {
+      result$hourly[[i]] <- result$alldata[result$alldata$datetime == sequence[i],]
+    } else {
+      WS.prev<-WSdata[WSdata$datetime == tail(datetime[datetime < 
+                                                         sequence[i]],1),]
+      WS.after <- WSdata[WSdata$datetime == datetime[datetime > 
+                                                       sequence[i]][1],]
+      delta1 <- as.numeric(difftime(WS.after$datetime, 
+                                    WS.prev$datetime, units="secs"))
+      delta2 <- as.numeric(difftime(sequence[i], WS.prev$datetime, units="secs"))
+      interp <- WS.prev + (WS.after - WS.prev)/delta1 * delta2
+      interp[,2:7] <- round(interp[,2:7],2) 
+      result$hourly[[i]] <- interp
+    }
+  }
+  result$hourly <- do.call("rbind", result$hourly)
+
   ## Join with satellite data
   if(missing(MTL)){MTL <- list.files(pattern = "MTL.txt", full.names = T)}
   if(length(MTL)!=0){
@@ -108,7 +154,7 @@ read.WSdata <- function(WSdata, ..., height = 2.2, lat, long, elev,
 #' Negative values for west longitude
 #' @param elev               elevation of weather station in meters
 #' @param columns            columns order of needed data. Vector containing 
-#' "date", "time", "radiation", "wind", "RH" and "temp". Other values are 
+#' "date", "time", "radiation", "wind", "RH", "temp" and "rain". Other values are 
 #' ignored. If you have a column with date and time in the same column, you can
 #' include "datetime" and "date" and "time" are no longer needed.
 #' @param date.format        date format. See strptime format argument.
@@ -147,47 +193,66 @@ read.WSdata2 <- function(WSdata, ..., height = 2.2, lat, long, elev,
 #' @param sat     If TRUE, and if the waterWeatherStation object was created
 #' using a Landsat Metadata File, will plot only data from day of the satellite
 #' overpass 
+#' @param date    When sat = FALSE, the date to plot in a multi-day object
 #' @param ...      additional parameters to pass to plot()
 #' @author Guillermo Federico Olmedo
 #' @importFrom utils read.csv
 #' @importFrom graphics abline axis axis.POSIXct mtext par points
 #' @export
 #' @method plot waterWeatherStation
-plot.waterWeatherStation <- function(x, hourly=FALSE, sat=TRUE, ...){
+plot.waterWeatherStation <- function(x, hourly=FALSE, sat=TRUE, date, ...){
   # Based on http://evolvingspaces.blogspot.cl/2011/05/multiple-y-axis-in-r-plot.html
   WSp <- x$hourly
-  atsat  <- as.POSIXct(x$at.sat$datetime)
   if(hourly == FALSE) {WSp <- x$alldata}
-  if(sat == TRUE & atsat > 0){WSp <- WSp[as.Date(WSp$datetime) == as.Date(atsat),]}
+  if(sat == TRUE & exists("x$at.sat$datetime")){atsat  <- as.POSIXlt(x$at.sat$datetime)
+  WSp <- WSp[as.POSIXlt(WSp$datetime)$yday == atsat$yday 
+             & as.POSIXlt(WSp$datetime)$year == atsat$year,]
+  }
+  if(!missing(date)){
+    date <- as.POSIXlt(date)
+    WSp <- WSp[as.POSIXlt(WSp$datetime)$yday == date$yday 
+               & as.POSIXlt(WSp$datetime)$year == date$year,]
+  }
   time <- WSp$datetime
-  graphics::par(mar=c(5, 7, 4, 7) + 0.1)
+  graphics::par(mar=c(5, 7, 4, 9.5) + 0.1)
   plot(time, WSp$radiation, axes=F, ylim=c(0,max(WSp$radiation)), xlab="", 
        ylab="",type="l",col="red", main="",xlim=range(time), ...)
-  graphics::abline(v=atsat, lwd=5, col="gray")
-  graphics::text(atsat, max(WSp$radiation)*0.85, "satellite overpass", cex=0.7, 
-                 adj=c(NA, -0.5), srt=90, col="gray")
+  if(sat == TRUE & exists("x$at.sat$datetime")){
+    graphics::abline(v=as.POSIXct(atsat), lwd=5, col="gray")
+    graphics::text(atsat, max(WSp$radiation)*0.85, "satellite overpass", cex=0.7, 
+                   adj=c(NA, -0.5), srt=90, col="gray")
+  }
   graphics::points(time,WSp$radiation,pch=20,col="red")
-  graphics::axis(2, ylim=c(0,max(WSp$radiation)),col="red",lwd=1, cex.axis=0.5)
+  graphics::axis(2, ylim=c(0,max(WSp$radiation)),col="red",lwd=1, cex.axis=0.5, tcl=-0.25)
   graphics::mtext(2,text="Solar radiation (W.m-2)",line=1.7, cex=0.7)
+  # Rain
+  graphics::par(new=T)
+  #WSp[WSp$rain == 0] <- NA
+  plot(time, WSp$rain, axes=F, ylim=c(0,max(WSp$rain)*1.7), xlab="", ylab="", 
+       type="h",col="light blue",lty=1, main="",xlim=range(time),lwd=3)
+  graphics::axis(4, ylim=c(0,max(WSp$rain)*1.7),col="light blue", line = 6.7, lwd=1, cex.axis=0.5, tcl=-0.25)
+  graphics::mtext(4,text="Rain (mm)", cex=0.7, line = 8.4)
+  #
   graphics::par(new=T)
   plot(time, WSp$wind, axes=F, ylim=c(0,max(WSp$wind)), xlab="", ylab="", 
        type="l",col="green",lty=2, main="",xlim=range(time),lwd=2,...)
-  graphics::axis(2, ylim=c(0,max(WSp$wind)),col="green",lwd=1,line=3.5, cex.axis=0.5)
+  graphics::axis(2, ylim=c(0,max(WSp$wind)),col="green",lwd=1,line=3.5, cex.axis=0.5, tcl=-0.25)
   graphics::points(time, WSp$wind,pch=20,col="green")
   graphics::mtext(2,text="Wind speed (m.s-1)",line=5.5, cex=0.7)
   graphics::par(new=T)
   plot(time, WSp$temp, axes=F, ylim=c(0,max(WSp$temp)), xlab="", ylab="", 
        type="l",col="black",lty=2, main="",xlim=range(time),lwd=2,...)
-  graphics::axis(4, ylim=c(0,max(WSp$temp)),col="black",lwd=1, cex.axis=0.5)
+  graphics::axis(4, ylim=c(0,max(WSp$temp)),col="black",lwd=1, cex.axis=0.5, tcl=-0.25)
   graphics::points(time, WSp$temp,pch=20,col="black")
   graphics::mtext(4,text="Temperature (C)",line=1.7, cex=0.7)
   graphics::par(new=T)
   plot(time, WSp$ea, axes=F, ylim=c(0,max(WSp$ea)), xlab="", ylab="", 
        type="l",col="blue",lty=2, main="",xlim=range(time),lwd=2, ...)
-  graphics::axis(4, ylim=c(0,max(WSp$ea)),col="blue",lwd=1,line=3.5, cex.axis=0.5)
+  graphics::axis(4, ylim=c(0,max(WSp$ea)),col="blue",lwd=1,line=3.5, cex.axis=0.5, tcl=-0.25)
   graphics::points(time, WSp$ea,pch=20,col="blue")
   graphics::mtext(4,text="vapor pressure (kPa)",line=5.5, cex=0.7)
-  graphics::axis.POSIXct(1, range(time))
+  r <- as.POSIXct(round(range(time), "hours"))
+  graphics::axis.POSIXct(1, at = seq(r[1], r[2], by = "hour"), format = "%H")
   graphics::mtext("Time",side=1,col="black",line=2)
 }
 
@@ -198,10 +263,10 @@ plot.waterWeatherStation <- function(x, hourly=FALSE, sat=TRUE, ...){
 #' @export
 #' @method print waterWeatherStation
 print.waterWeatherStation <- function(x, ...){
-  cat("Weather Station at lat:", round(x$location$lat, 2), "long:", 
+  cat("Weather Station @ lat:", round(x$location$lat, 2), "long:", 
       round(x$location$long, 2), "elev:", round(x$location$elev, 2), "\n")
   cat("Summary:\n")
-  print(summary(x$alldata[,2:6]), ...)
+  print(summary(x$alldata[,2:7]), ...)
   if(!is.null(x$at.sat)){
   cat("\n Conditions at satellite flyby:\n")
   print(x$at.sat)}

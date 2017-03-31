@@ -13,7 +13,7 @@ calcH(anchors, method = "mean", Ts, Z.om, WeatherStation, ETp.coef = 1.05,
 a spatialPointDataframe o Dataframe with X, Y, and type. type should be 
 "cold" or "hot"}
 
-\item{method}{Method when using more than 1 pair of anchors pixels. 
+\item{method}{Method when using more than 1 pair of anchor pixels. 
 method = "mean" will use the mean value for the cold pixels vs the mean value
 for the hot pixels.}
 
@@ -57,6 +57,11 @@ Aerodynamic resistance, and heat transfer is impacted by buoyancy of heated, lig
 especially when H is large. Therefore, correction to rah is needed to account for buoyancy effects. However, 
 H is needed to make this correction. An iterative solution for both H and rah is used.
 }
+\references{
+R. G. Allen, M. Tasumi, and R. Trezza, "Satellite-based energy balance for mapping evapotranspiration with internalized calibration (METRIC) - Model" Journal of Irrigation and Drainage Engineering, vol. 133, p. 380, 2007 \cr
+
+Allen, R., Irmak, A., Trezza, R., Hendrickx, J.M.H., Bastiaanssen, W., Kjaersgaard, J., 2011. Satellite-based ET estimation in agriculture using SEBAL and METRIC. Hydrol. Process. 25, 4011-4027. doi:10.1002/hyp.8408 \cr
+}
 \author{
 Guillermo Federico Olmedo
 
@@ -64,9 +69,3 @@ de la Fuente-Saiz, Daniel
 
 Fernando Fuentes Peñailillo
 }
-\references{
-R. G. Allen, M. Tasumi, and R. Trezza, "Satellite-based energy balance for mapping evapotranspiration with internalized calibration (METRIC) - Model" Journal of Irrigation and Drainage Engineering, vol. 133, p. 380, 2007 \cr
-
-Allen, R., Irmak, A., Trezza, R., Hendrickx, J.M.H., Bastiaanssen, W., Kjaersgaard, J., 2011. Satellite-based ET estimation in agriculture using SEBAL and METRIC. Hydrol. Process. 25, 4011-4027. doi:10.1002/hyp.8408 \cr
-}
-
