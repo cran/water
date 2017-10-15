@@ -9,13 +9,14 @@
 #' @param albedo          broadband surface albedo. See albedo()
 #' @param a               "a" coefficients for Allen (2007) custom function to estimate Momentum roughness length. Only needed for method = "custom"
 #' @param b               "b" coefficients for Allen (2007) custom function to estimate Momentum roughness length. Only needed for method = "custom" 
-#' @param fLAI.Perrier    proportion of LAI lying above h/2. Only needed for method = "Perrier"
-#' @param h.Perrier       crop height in meters. Only needed for method = "Perrier"
+#' @param fLAI            proportion of LAI lying above h/2. Only needed for method = "Perrier"
+#' @param h               crop height in meters. Only needed for method = "Perrier"
 #' @param mountainous      empirical adjustment for effects of general terrain roughness on momentum and heat transfer. See Allen (2007)
 #' @param surface.model   surface model with a RasterLayer called "Slope" needed is mountainous = TRUE. See surface.model()
 #' @details According Allen et al,. 2010 Zom is a measure of the form drag and skin friction for the layer of air that interacts with the surface.
 #' @author Guillermo Federico Olmedo
 #' @author de la Fuente-Saiz, Daniel
+#' @family sensible heat flux functions
 #' @references 
 #' R. G. Allen, M. Tasumi, and R. Trezza, "Satellite-based energy balance for mapping evapotranspiration with internalized calibration (METRIC) - Model" Journal of Irrigation and Drainage Engineering, vol. 133, p. 380, 2007 \cr
 #' 
@@ -27,7 +28,7 @@
 ## using some points and tabulated z.om for their covers.
 ## Perrier by Santos 2012 and Pocas 2014.
 momentumRoughnessLength <- function(method="short.crops", LAI, NDVI, 
-                                    albedo, a, b, fLAI.Perrier, h.Perrier, 
+                                    albedo, a, b, fLAI, h, 
                                     mountainous=FALSE, surface.model){
   if(method=="short.crops"){
     Z.om <- (0.018*LAI)
@@ -36,9 +37,9 @@ momentumRoughnessLength <- function(method="short.crops", LAI, NDVI,
     Z.om <- exp((a*NDVI/albedo)+b)
   }
   if(method=="Perrier"){
-    if(fLAI.Perrier >=0.5){ a <- (2*(1-fLAI.Perrier))^-1 }
-    if(fLAI.Perrier <0.5){ a <- 2*fLAI.Perrier }
-    Z.om <- ((1-exp(-a*LAI/2))*exp(-a*LAI/2))^h.Perrier
+    if(fLAI <0.5){ a <- (2*(1-fLAI))^-1 }
+    if(fLAI >=0.5){ a <- 2*fLAI }
+    Z.om <- ((1-exp(-a*LAI/2))*exp(-a*LAI/2))*h
   }
   if(mountainous==TRUE){
     Z.om <- Z.om * (1 + (180/pi*surface.model$Slope - 5)/20)
@@ -58,29 +59,41 @@ momentumRoughnessLength <- function(method="short.crops", LAI, NDVI,
 #' @param n                number of pair of anchors pixels to calculate
 #' @param aoi              area of interest to limit the search. If 
 #' waterOptions(autoAOI) == TRUE, It'll use aoi object from .GlobalEnv
-#' @param anchors.method   method for the selection of anchor pixels. "CITRA-MCBr" for
+#' @param anchors.method   method for the selection of anchor pixels. "random" for
 #' random selection of hot and cold candidates according to CITRA-MCB method, or 
-#' "CITRA-MCBbc" for selecting the best candidates
+#' "best" for selecting the best candidates. And "flexible" for method with soft
+#' limits to the anchor pixel conditions.
 #' @param WeatherStation Optional. WeatherStation data at the satellite overpass. 
 #' Should be a waterWeatherStation object calculated using read.WSdata and MTL file.
-#' If you provide a WeatherStation object it will restrict the location of anchors
-#' pixels to less than 30 km away from it.
 #' @param plots            Logical. If TRUE will plot position of anchors points
 #' selected. Points in red are selected hot pixels, blue are the cold ones and the 
 #' black represents the position of the Weather Station
 #' @param deltaTemp        deltaTemp for method "CITRA-MCBs" or "CITRA-MCBr"
-#' @param buffer           minimun distance allowed for two anchor pixels of the same kind
+#' @param minDist           minimun distance allowed for two anchor pixels of the 
+#' same type (in meters).
+#' @param WSbuffer         maximun distante to the Weather Station (in meters).
 #' @param verbose          Logical. If TRUE will print aditional data to console
 #' @author Guillermo Federico Olmedo
 #' @author de la Fuente-Saiz, Daniel
+#' @family sensible heat flux functions
 #' @references 
 #' CITRA y MCB (com pers)
 #' @export
 calcAnchors  <- function(image, Ts, LAI, albedo, Z.om, n=1, aoi,
-                         anchors.method= "CITRA-MCBbc", WeatherStation,
-                         plots=TRUE, deltaTemp=5, buffer = 500, verbose=FALSE) {
+                         anchors.method= "flexible", WeatherStation,
+                         plots=TRUE, deltaTemp=5, minDist = 500, WSbuffer = 30000,
+                         verbose=FALSE) {
+  ### old method names. Remove after version 0.8
+  if(anchors.method %in% c("CITRA-MCB", "CITRA-MCBbc", "CITRA-MCBr")){
+    warning("anchor method names has changed. Old names (CITRA-MCBx) are 
+            deprecated. Options now include 'best', 'random' and 'flexible'")
+  }
+  if(anchors.method %in% c("CITRA-MCB", "CITRA-MCBbc")){anchors.method <- "best"}
+  if(anchors.method %in% c("CITRA-MCBr")){anchors.method <- "random"}
   ### Some values used later
   NDVI <- (image$NIR - image$R) / (image$NIR + image$R)
+  NDVI[NDVI < -1]  <-  NA
+  NDVI[NDVI > 1]  <-  NA
   if(!missing(WeatherStation)){
     WSloc <- WeatherStation$location
     coordinates(WSloc) <- ~ long + lat
@@ -88,17 +101,17 @@ calcAnchors  <- function(image, Ts, LAI, albedo, Z.om, n=1, aoi,
     WSloc <- sp::spTransform(WSloc, Ts@crs)
     ## Longer but avoids to use rgeos
     WScell <- extract(Ts, WSloc, cellnumbers=T)[1]
-    WSbuffer <- raster(Ts)
-    values(WSbuffer)[WScell] <- 1
-    WSbuffer <- buffer(WSbuffer, width = 30000)
+    WS.buffer <- raster(Ts)
+    values(WS.buffer)[WScell] <- 1
+    WS.buffer <- buffer(WS.buffer, width = WSbuffer)
   } else {
-    WSbuffer <- raster(Ts)
-    values(WSbuffer)<- 1
+    WS.buffer <- raster(Ts)
+    values(WS.buffer)<- 1
   }
-  if(anchors.method=="CITRA-MCBr"){
+  if(anchors.method=="random"){
     minT <- quantile(Ts[LAI>=3&LAI<=6&albedo>=0.18&albedo<=0.25&Z.om>=0.03&
                           Z.om<=0.08], 0.05, na.rm=TRUE)
-    if(minT+deltaTemp<288){minT = 288 + deltaTemp}
+    if(minT+deltaTemp<288 | is.na(minT)){minT = 288 + deltaTemp}
     ## NDVI used in cold isn't the same as CITRA!
     maxT <- max(Ts[albedo>=0.13&albedo<=0.15&NDVI>=0.1&NDVI<=0.28&
                      Z.om<=0.005], na.rm=TRUE)
@@ -106,27 +119,31 @@ calcAnchors  <- function(image, Ts, LAI, albedo, Z.om, n=1, aoi,
       values(albedo>=0.18) & values(albedo<=0.25) &
       values(NDVI>=max(values(NDVI), na.rm=T)-0.15) &
       values(Z.om>=0.03) & values(Z.om<=0.08) &
-      values(Ts<(minT+deltaTemp)) & values(WSbuffer == 1)
+      values(Ts<(minT+deltaTemp)) & values(WS.buffer == 1)
     hot.candidates <- values(albedo>=0.13) & values(albedo<=0.15) &
       values(NDVI>=0.1) & values(NDVI<=0.28) &
-      values(Z.om<=0.005) & values(Ts>(maxT-deltaTemp)) & values(WSbuffer == 1)
+      values(Z.om<=0.005) & values(Ts>(maxT-deltaTemp)) & values(WS.buffer == 1)
+    ### Test # anchors
+    cold.n <- sum(as.numeric(cold.candidates), na.rm = T)
+    hot.n <- sum(as.numeric(hot.candidates), na.rm = T)
+    if(cold.n < 1 | hot.n < 1){
+      stop(paste("Not enough pixels with the conditions for anchor pixels. I 
+                 found", cold.n, "cold pixels and", hot.n, "hot pixels."))
+    }
     # First cold sample
     try(cold <- sample(which(cold.candidates),1), silent=TRUE)
-    if(!exists("cold")){
-      stop("There are no pixels that meet the conditions for cold pixels")
-    }
     if(n>1){  ## Next samples...
       for(nsample in 1:(n-1)){
         distbuffer <- raster(Ts)
         values(distbuffer)[cold] <- 1
-        distbuffer <- buffer(distbuffer, width = buffer) ### 500m buffer
+        distbuffer <- buffer(distbuffer, width = minDist) ### 500m buffer
         distbuffer <- is.na(distbuffer)
         newAnchor <- NA
         cold.candidates <- values(LAI>=3) & values(LAI<=6) &  
           values(albedo>=0.18) & values(albedo<=0.25) &
           values(NDVI>=max(values(NDVI), na.rm=T)-0.15) &
           values(Z.om>=0.03) & values(Z.om<=0.08) &
-          values(Ts<(minT+deltaTemp)) & values(distbuffer==1) & values(WSbuffer == 1)
+          values(Ts<(minT+deltaTemp)) & values(distbuffer==1) & values(WS.buffer == 1)
         if(length(which(cold.candidates))<2){
           warning(paste("I can only find ", nsample, " anchors with cold pixel conditions"))
           break
@@ -137,19 +154,16 @@ calcAnchors  <- function(image, Ts, LAI, albedo, Z.om, n=1, aoi,
     
     # First hot sample
     try(hot <- sample(which(hot.candidates & values(Ts>quantile(Ts[hot.candidates], 0.75))),1), silent=TRUE)
-    if(!exists("hot")){
-      stop("There are no pixels that meet the conditions for hot pixels")
-    }
     if(n>1){  ## Next samples...
       for(nsample in 1:(n-1)){
         distbuffer <- raster(Ts)
         values(distbuffer)[hot] <- 1
-        distbuffer <- buffer(distbuffer, width = buffer) ### 500m buffer
+        distbuffer <- buffer(distbuffer, width = minDist) ### 500m buffer
         distbuffer <- is.na(distbuffer)
         newAnchor <- NA
         hot.candidates <- values(albedo>=0.13) & values(albedo<=0.15) &
           values(NDVI>=0.1) & values(NDVI<=0.28) & values(distbuffer==1) &
-          values(Z.om<=0.005) & values(Ts>(maxT-deltaTemp)) & values(WSbuffer == 1)
+          values(Z.om<=0.005) & values(Ts>(maxT-deltaTemp)) & values(WS.buffer == 1)
         if(length(which(hot.candidates))<2){
           warning(paste("I can only find ", nsample, " anchors with hot pixel conditions"))
           break
@@ -158,10 +172,10 @@ calcAnchors  <- function(image, Ts, LAI, albedo, Z.om, n=1, aoi,
         if(!is.na(newAnchor)){hot <- c(hot, newAnchor)} 
       }}
   }
-  if(anchors.method=="CITRA-MCB"  | anchors.method=="CITRA-MCBbc"){
-    minT <- quantile(Ts[LAI>=3&LAI<=6&albedo>=0.18&albedo<=0.25&Z.om>=0.03&
+  if(anchors.method=="best"){
+    minT <- quantile(Ts[LAI>=2.8&LAI<=6&albedo>=0.15&albedo<=0.25&Z.om>=0.03&
                           Z.om<=0.08], 0.05, na.rm=TRUE)
-    if(minT+deltaTemp<288){minT = 288 + deltaTemp}
+    if(minT+deltaTemp<288 | is.na(minT)){minT = 288 + deltaTemp}
     ## NDVI used in cold isn't the same as CITRA!
     maxT <- max(Ts[albedo>=0.13&albedo<=0.15&NDVI>=0.1&NDVI<=0.28&
                      Z.om<=0.005], na.rm=TRUE)
@@ -169,10 +183,17 @@ calcAnchors  <- function(image, Ts, LAI, albedo, Z.om, n=1, aoi,
       values(albedo>=0.18) & values(albedo<=0.25) &
       values(NDVI>=max(values(NDVI), na.rm=T)-0.15) &
       values(Z.om>=0.03) & values(Z.om<=0.08) &
-      values(Ts<(minT+deltaTemp)) & values(WSbuffer == 1)
+      values(Ts<(minT+deltaTemp)) & values(WS.buffer == 1)
     hot.candidates <- values(albedo>=0.13) & values(albedo<=0.15) &
       values(NDVI>=0.1) & values(NDVI<=0.28) &
-      values(Z.om<=0.005) & values(Ts>(maxT-deltaTemp)) & values(WSbuffer == 1)
+      values(Z.om<=0.005) & values(Ts>(maxT-deltaTemp)) & values(WS.buffer == 1)
+    ### Test # anchors
+    cold.n <- sum(as.numeric(cold.candidates), na.rm = T)
+    hot.n <- sum(as.numeric(hot.candidates), na.rm = T)
+    if(cold.n < 1 | hot.n < 1){
+      stop(paste("Not enough pixels with the conditions for anchor pixels. I 
+                 found", cold.n, "cold pixels and", hot.n, "hot pixels."))
+    }
     # Cold samples
     Ts.cold <- Ts
     values(Ts.cold)[!cold.candidates] <- NA
@@ -181,14 +202,14 @@ calcAnchors  <- function(image, Ts, LAI, albedo, Z.om, n=1, aoi,
       for(nsample in 1:(n-1)){
         distbuffer <- raster(Ts)
         values(distbuffer)[cold] <- 1
-        distbuffer <- buffer(distbuffer, width = buffer) ### 500m buffer
+        distbuffer <- buffer(distbuffer, width = minDist) ### 500m buffer
         distbuffer <- is.na(distbuffer)
         newAnchor <- NA
         cold.candidates <- values(LAI>=3) & values(LAI<=6) &  
           values(albedo>=0.18) & values(albedo<=0.25) &
           values(NDVI>=max(values(NDVI), na.rm=T)-0.15) &
           values(Z.om>=0.03) & values(Z.om<=0.08) &
-          values(Ts<(minT+deltaTemp)) & values(distbuffer==1) & values(WSbuffer == 1)
+          values(Ts<(minT+deltaTemp)) & values(distbuffer==1) & values(WS.buffer == 1)
         values(Ts.cold)[!cold.candidates] <- NA
         if(length(which(cold.candidates))<2){
           warning(paste("I can only find ", nsample, " anchors with cold pixel conditions"))
@@ -206,12 +227,12 @@ calcAnchors  <- function(image, Ts, LAI, albedo, Z.om, n=1, aoi,
       for(nsample in 1:(n-1)){
         distbuffer <- raster(Ts)
         values(distbuffer)[hot] <- 1
-        distbuffer <- buffer(distbuffer, width = buffer) ### 500m buffer
+        distbuffer <- buffer(distbuffer, width = minDist) ### 500m buffer
         distbuffer <- is.na(distbuffer)
         newAnchor <- NA
         hot.candidates <- values(albedo>=0.13) & values(albedo<=0.15) &
           values(NDVI>=0.1) & values(NDVI<=0.28) & values(distbuffer==1) &
-          values(Z.om<=0.005) & values(Ts>(maxT-deltaTemp)) & values(WSbuffer == 1)
+          values(Z.om<=0.005) & values(Ts>(maxT-deltaTemp)) & values(WS.buffer == 1)
         values(Ts.hot)[!hot.candidates] <- NA
         if(length(which(hot.candidates))<2){
           warning(paste("I can only find ", nsample, " anchors with hot pixel conditions"))
@@ -222,6 +243,193 @@ calcAnchors  <- function(image, Ts, LAI, albedo, Z.om, n=1, aoi,
       }}
     
   }
+  
+  if(anchors.method=="flexible"){    ### method = "flexible" ####
+    ### Find minT and maxT or fall back to default values 
+    minT <- quantile(Ts[LAI>=2.8&LAI<=6&albedo>=0.15&albedo<=0.25&Z.om>=0.03&
+                          Z.om<=0.08], 0.05, na.rm=TRUE)
+    if(minT+deltaTemp<288 | is.na(minT)){minT = 288 + deltaTemp}
+    maxT <- max(Ts[albedo>=0.13&albedo<=0.15&NDVI>=0.1&NDVI<=0.28&
+                     Z.om<=0.005], na.rm=TRUE)
+    if(is.na(maxT)){maxT <- quantile(Ts, 0.95, na.rm = T)}
+    ### create data.frames with optimal values for anchors
+    optValCold <- data.frame(LAI = c(3,6), albedo = c(0.18, 0.25),
+                                Z.om = c(0.03, 0.08))
+    optValHot <- data.frame(albedo = c(0.13, 0.15), NDVI = c(0.1, 0.28),
+                               Z.om = c(NA, 0.005), Ts = c(maxT-deltaTemp, NA))
+    ### Search for colds!
+    cold.candidates <- values(LAI>=optValCold$LAI[1]) & values(LAI<=optValCold$LAI[2]) &  
+      values(albedo>=optValCold$albedo[1]) & values(albedo<=optValCold$albedo[2]) &
+      values(NDVI>=max(values(NDVI), na.rm=T)-0.15) &
+      values(Z.om>=optValCold$Z.om[1]) & values(Z.om<=optValCold$Z.om[2]) &
+      values(Ts<(minT+deltaTemp)) & values(WS.buffer == 1)
+    cold.n <- sum(as.numeric(cold.candidates), na.rm = T)
+    useBuffer <- TRUE
+    flex <- 0
+    optValColdBck <- optValCold
+    while(cold.n < 1){        ## relax cold criteria
+      useBuffer <- !useBuffer
+      cold.candidates <- values(LAI>=optValCold$LAI[1]) & values(LAI<=optValCold$LAI[2]) &  
+        values(albedo>=optValCold$albedo[1]) & values(albedo<=optValCold$albedo[2]) &
+        values(NDVI>=max(values(NDVI), na.rm=T)-0.15) &
+        values(Z.om>=optValCold$Z.om[1]) & values(Z.om<=optValCold$Z.om[2]) &
+        values(Ts<(minT+deltaTemp)) & values(WS.buffer == as.numeric(useBuffer))
+      cold.n <- sum(as.numeric(cold.candidates), na.rm = T)
+      useBuffer <- !useBuffer
+      flex <- flex + 0.01
+      print(paste0("relaxing criteria for cold pixels: ", flex, "%"))
+      optValCold[1,] <- optValColdBck[1,] * c((1-flex), 1, 1)
+      optValCold[2,] <- optValColdBck[2,] * c((1+flex), 1, 1)
+      cold.candidates <- values(LAI>=optValCold$LAI[1]) & values(LAI<=optValCold$LAI[2]) &  
+        values(albedo>=optValCold$albedo[1]) & values(albedo<=optValCold$albedo[2]) &
+        values(NDVI>=max(values(NDVI), na.rm=T)-0.15) &
+        values(Z.om>=optValCold$Z.om[1]) & values(Z.om<=optValCold$Z.om[2]) &
+        values(Ts<(minT+deltaTemp)) & values(WS.buffer == as.numeric(useBuffer))
+      cold.n <- sum(as.numeric(cold.candidates), na.rm = T)
+      optValCold[1,] <- optValColdBck[1,] * c(1, (1-flex), 1)
+      optValCold[2,] <- optValColdBck[2,] * c(1, (1+flex), 1)
+      cold.candidates <- values(LAI>=optValCold$LAI[1]) & values(LAI<=optValCold$LAI[2]) &  
+        values(albedo>=optValCold$albedo[1]) & values(albedo<=optValCold$albedo[2]) &
+        values(NDVI>=max(values(NDVI), na.rm=T)-0.15) &
+        values(Z.om>=optValCold$Z.om[1]) & values(Z.om<=optValCold$Z.om[2]) &
+        values(Ts<(minT+deltaTemp)) & values(WS.buffer == as.numeric(useBuffer))
+      cold.n <- sum(as.numeric(cold.candidates), na.rm = T)
+      optValCold[1,] <- optValColdBck[1,] * c(1, 1, (1-flex))
+      optValCold[2,] <- optValColdBck[2,] * c(1, 1, (1+flex))
+      cold.candidates <- values(LAI>=optValCold$LAI[1]) & values(LAI<=optValCold$LAI[2]) &  
+        values(albedo>=optValCold$albedo[1]) & values(albedo<=optValCold$albedo[2]) &
+        values(NDVI>=max(values(NDVI), na.rm=T)-0.15) &
+        values(Z.om>=optValCold$Z.om[1]) & values(Z.om<=optValCold$Z.om[2]) &
+        values(Ts<(minT+deltaTemp)) & values(WS.buffer == as.numeric(useBuffer))
+      cold.n <- sum(as.numeric(cold.candidates), na.rm = T)
+      optValCold[1,] <- optValColdBck[1,] * (1-flex)
+      optValCold[2,] <- optValColdBck[2,] * (1+flex)
+      cold.candidates <- values(LAI>=optValCold$LAI[1]) & values(LAI<=optValCold$LAI[2]) &  
+        values(albedo>=optValCold$albedo[1]) & values(albedo<=optValCold$albedo[2]) &
+        values(NDVI>=max(values(NDVI), na.rm=T)-0.15) &
+        values(Z.om>=optValCold$Z.om[1]) & values(Z.om<=optValCold$Z.om[2]) &
+        values(Ts<(minT+deltaTemp)) & values(WS.buffer == as.numeric(useBuffer))
+      cold.n <- sum(as.numeric(cold.candidates), na.rm = T)
+      if(flex >= 1){stop("Automatic selection of cold anchors FAILED")}
+    } 
+    if(flex != 0 | useBuffer != TRUE){warning(paste("Criteria used for cold pixels was:
+    LAI:", optValCold[1,1], "to", optValCold[2,1], "
+    albedo:", optValCold[1,2], "to", optValCold[2,2], "
+    Z.om:", optValCold[1,3], "to", optValCold[2,3], "
+    and buffer ==", useBuffer))}
+    ### Search for hots !
+    hot.candidates <- values(albedo>=optValHot$albedo[1]) & values(albedo<=optValHot$albedo[2]) &
+      values(NDVI>=optValHot$NDVI[1]) & values(NDVI<=optValHot$NDVI[2]) &
+      values(Z.om<=optValHot$Z.om[2]) & values(Ts>(optValHot$Ts[1])) & values(WS.buffer == 1)
+    hot.n <- sum(as.numeric(hot.candidates), na.rm = T)
+    useBuffer <- TRUE
+    flex <- 0
+    optValHotBck <- optValHot
+    while(hot.n < 1){        ## relax hot criteria
+      useBuffer <- !useBuffer
+      hot.candidates <- values(albedo>=optValHot$albedo[1]) & values(albedo<=optValHot$albedo[2]) &
+        values(NDVI>=optValHot$NDVI[1]) & values(NDVI<=optValHot$NDVI[2]) &
+        values(Z.om<=optValHot$Z.om[2]) & values(Ts>(optValHot$Ts[1])) & values(WS.buffer == 1)
+      hot.n <- sum(as.numeric(hot.candidates), na.rm = T)
+      useBuffer <- !useBuffer
+      flex <- flex + 0.01
+      print(paste0("relaxing criteria for hot pixels: ", flex, "%"))
+      optValHot[1,] <- optValHotBck[1,] * c((1-flex), 1, 1, 1)
+      optValHot[2,] <- optValHotBck[2,] * c((1+flex), 1, 1, 1)
+      hot.candidates <- values(albedo>=optValHot$albedo[1]) & values(albedo<=optValHot$albedo[2]) &
+        values(NDVI>=optValHot$NDVI[1]) & values(NDVI<=optValHot$NDVI[2]) &
+        values(Z.om<=optValHot$Z.om[2]) & values(Ts>(optValHot$Ts[1])) & values(WS.buffer == 1)
+      hot.n <- sum(as.numeric(hot.candidates), na.rm = T)
+      optValHot[1,] <- optValHotBck[1,] * c(1, (1-flex), 1, 1)
+      optValHot[2,] <- optValHotBck[2,] * c(1, (1+flex), 1, 1)
+      hot.candidates <- values(albedo>=optValHot$albedo[1]) & values(albedo<=optValHot$albedo[2]) &
+        values(NDVI>=optValHot$NDVI[1]) & values(NDVI<=optValHot$NDVI[2]) &
+        values(Z.om<=optValHot$Z.om[2]) & values(Ts>(optValHot$Ts[1])) & values(WS.buffer == 1)
+      hot.n <- sum(as.numeric(hot.candidates), na.rm = T)
+      optValHot[1,] <- optValHotBck[1,] * c(1, 1, (1-flex), 1)
+      optValHot[2,] <- optValHotBck[2,] * c(1, 1, (1+flex), 1)
+      hot.candidates <- values(albedo>=optValHot$albedo[1]) & values(albedo<=optValHot$albedo[2]) &
+        values(NDVI>=optValHot$NDVI[1]) & values(NDVI<=optValHot$NDVI[2]) &
+        values(Z.om<=optValHot$Z.om[2]) & values(Ts>(optValHot$Ts[1])) & values(WS.buffer == 1)
+      hot.n <- sum(as.numeric(hot.candidates), na.rm = T)
+      optValHot[1,] <- optValHotBck[1,] * c(1, 1, 1, (1-flex))
+      optValHot[2,] <- optValHotBck[2,] * c(1, 1, 1, (1+flex))
+      hot.candidates <- values(albedo>=optValHot$albedo[1]) & values(albedo<=optValHot$albedo[2]) &
+        values(NDVI>=optValHot$NDVI[1]) & values(NDVI<=optValHot$NDVI[2]) &
+        values(Z.om<=optValHot$Z.om[2]) & values(Ts>(optValHot$Ts[1])) & values(WS.buffer == 1)
+      hot.n <- sum(as.numeric(hot.candidates), na.rm = T)
+      optValHot[1,] <- optValHotBck[1,] * (1-flex)
+      optValHot[2,] <- optValHotBck[2,] * (1+flex)
+      hot.candidates <- values(albedo>=optValHot$albedo[1]) & values(albedo<=optValHot$albedo[2]) &
+        values(NDVI>=optValHot$NDVI[1]) & values(NDVI<=optValHot$NDVI[2]) &
+        values(Z.om<=optValHot$Z.om[2]) & values(Ts>(optValHot$Ts[1])) & values(WS.buffer == 1)
+      hot.n <- sum(as.numeric(hot.candidates), na.rm = T)
+      if(flex >= 1){stop("Automatic selection of hot anchors FAILED")}
+    } 
+    if(flex != 0 | useBuffer != TRUE){warning(paste("Criteria used for hot pixels was:
+    albedo:", optValHot[1,1], "to", optValHot[2,1], "
+    NDVI:", optValHot[1,2], "to", optValHot[2,2], "
+    max Z.om:", optValHot[2,3], "
+    min Ts:", optValHot[1,4], "
+    and buffer ==", useBuffer))}
+    ### Test # anchors
+    cold.n <- sum(as.numeric(cold.candidates), na.rm = T)
+    hot.n <- sum(as.numeric(hot.candidates), na.rm = T)
+    if(cold.n < 1 | hot.n < 1){
+      stop(paste("Not enough pixels with the conditions for anchor pixels. I 
+                 found", cold.n, "cold pixels and", hot.n, "hot pixels."))
+    }
+    # Cold samples
+    Ts.cold <- Ts
+    values(Ts.cold)[!cold.candidates] <- NA
+    cold <- raster::which.min(Ts.cold)[1]
+    if(n>1){  ## Next samples...
+      for(nsample in 1:(n-1)){
+        distbuffer <- raster(Ts)
+        values(distbuffer)[cold] <- 1
+        distbuffer <- buffer(distbuffer, width = minDist) ### 500m buffer
+        distbuffer <- is.na(distbuffer)
+        newAnchor <- NA
+        cold.candidates <- values(LAI>=3) & values(LAI<=6) &  
+          values(albedo>=0.18) & values(albedo<=0.25) &
+          values(NDVI>=max(values(NDVI), na.rm=T)-0.15) &
+          values(Z.om>=0.03) & values(Z.om<=0.08) &
+          values(Ts<(minT+deltaTemp)) & values(distbuffer==1) & values(WS.buffer == 1)
+        values(Ts.cold)[!cold.candidates] <- NA
+        if(length(which(cold.candidates))<2){
+          warning(paste("I can only find ", nsample, " anchors with cold pixel conditions"))
+          break
+        }
+        try(newAnchor <- raster::which.min(Ts.cold)[1], silent = FALSE)
+        if(!is.na(newAnchor)){cold <- c(cold, newAnchor)} 
+      }}
+    
+    # hot samples
+    Ts.hot <- Ts
+    values(Ts.hot)[!hot.candidates] <- NA
+    hot <- raster::which.max(Ts.hot)
+    if(n>1){  ## Next samples...
+      for(nsample in 1:(n-1)){
+        distbuffer <- raster(Ts)
+        values(distbuffer)[hot] <- 1
+        distbuffer <- buffer(distbuffer, width = minDist) ### 500m buffer
+        distbuffer <- is.na(distbuffer)
+        newAnchor <- NA
+        hot.candidates <- values(albedo>=0.13) & values(albedo<=0.15) &
+          values(NDVI>=0.1) & values(NDVI<=0.28) & values(distbuffer==1) &
+          values(Z.om<=0.005) & values(Ts>(maxT-deltaTemp)) & values(WS.buffer == 1)
+        values(Ts.hot)[!hot.candidates] <- NA
+        if(length(which(hot.candidates))<2){
+          warning(paste("I can only find ", nsample, " anchors with hot pixel conditions"))
+          break
+        }
+        try(newAnchor <- raster::which.max(Ts.hot)[1], silent = FALSE)
+        if(!is.na(newAnchor)){hot <- c(hot, newAnchor)} 
+      }}
+    
+    }
+  
+
   if(verbose==TRUE){
     print("Cold pixels")
     print(data.frame(cbind(pixel=cold, "LAI"=LAI[cold], "NDVI"=NDVI[cold], 
@@ -288,6 +496,7 @@ calcAnchors  <- function(image, Ts, LAI, albedo, Z.om, n=1, aoi,
 #' @author Guillermo Federico Olmedo
 #' @author de la Fuente-Saiz, Daniel
 #' @author Fernando Fuentes Peñailillo
+#' @family sensible heat flux functions
 #' @references 
 #' R. G. Allen, M. Tasumi, and R. Trezza, "Satellite-based energy balance for mapping evapotranspiration with internalized calibration (METRIC) - Model" Journal of Irrigation and Drainage Engineering, vol. 133, p. 380, 2007 \cr
 #'
@@ -327,6 +536,7 @@ calcH  <- function(anchors, method = "mean", Ts, Z.om, WeatherStation, ETp.coef=
     u200 <- u200 * (1+0.1*((DEM-WeatherStation$elev)/1000))
   }
   friction.velocity <- 0.41 * u200 / log(200/Z.om) 
+  friction.velocity[friction.velocity==0] <- 0.1
   r.ah <- log(2/0.1)/(friction.velocity*0.41) #ok
   
   LE.cold <- ETo.hourly * ETp.coef * (2.501 - 0.002361*(mean(Ts[cold])-273.15))*
@@ -354,10 +564,10 @@ calcH  <- function(anchors, method = "mean", Ts, Z.om, WeatherStation, ETp.coef=
   if(method == "mean"){
     ### Start of iterative process -------------------------------------------------    
     while(!converge){
-      i <-  i + 1 
       if(verbose==TRUE){
         print(paste("iteraction #", i))
       }
+      i <-  i + 1 
       ### We calculate dT and H 
       dT.cold <- H.cold * mean(r.ah[cold], na.rm= T) / (mean(air.density[cold], na.rm= T)*1004)
       dT.hot <- (mean(Rn[hot], na.rm= T) - mean(G[hot], na.rm= T)) * mean(r.ah[hot], na.rm= T) / (mean(air.density[hot], na.rm= T)*1004)
@@ -400,6 +610,7 @@ calcH  <- function(anchors, method = "mean", Ts, Z.om, WeatherStation, ETp.coef=
       }
       ## And finally, r.ah and friction velocity
       friction.velocity <- 0.41 * u200 / (log(200/Z.om) - phi.200)
+      friction.velocity[friction.velocity==0] <- 0.1
       # converge condition
       r.ah.hot.previous <- mean(r.ah[hot], na.rm= T)
       r.ah.cold.previous <- mean(r.ah[cold], na.rm= T)

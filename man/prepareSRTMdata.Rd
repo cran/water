@@ -4,15 +4,21 @@
 \alias{prepareSRTMdata}
 \title{Create a mosaic with SRTM grid from image extent}
 \usage{
-prepareSRTMdata(format = "tif", extent)
+prepareSRTMdata(path = getwd(), format = "tif", extent)
 }
 \arguments{
+\item{path}{folder where SRTM files are stored}
+
 \item{format}{format of SRTM grid files}
 
 \item{extent}{minimal extent of mosaic}
 }
 \description{
 Create a mosaic with SRTM grid from image extent
+}
+\seealso{
+Other support functions: \code{\link{checkSRTMgrids}},
+  \code{\link{createAoi}}
 }
 \author{
 Guillermo Federico Olmedo

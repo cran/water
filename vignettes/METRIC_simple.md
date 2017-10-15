@@ -1,7 +1,7 @@
 ---
 title: "Surface Energy Balance using **METRIC** model and **water** package: 1. *simple procedure*"
 author: "Guillermo Federico Olmedo and Daniel de la Fuente-Saiz"
-date: "`r Sys.Date()`"
+date: "2017-09-12"
 output: rmarkdown::html_vignette
 vignette: >
   %\VignetteIndexEntry{METRIC simple}
@@ -39,9 +39,9 @@ ET_{24} = \frac{ET_{inst}}{ET_r} ET_{r\_24}
 
 To begin this procedure, first load **water** package: 
 
-```{r, message=FALSE}
-library(water)
 
+```r
+library(water)
 ```
 
 ## Base data preparation
@@ -53,14 +53,16 @@ To calculate METRIC crops Evapotranspiration using **water** package, and the si
 - A polygon with our Area-of-interest (AOI) Spatial-Polygon object (if we won`t estimate corp ET for the entire landsat scene).
 
 First, we create the AOI as a polygon using bottomright and topleft points:
-```{r}
+
+```r
 aoi <- createAoi(topleft = c(272955, 6085705), 
                  bottomright = c( 288195, 6073195), EPSG = 32719)
 ```
 
 Then, we load the weather station data. For that we are going to use the function called `read.WSdata`. This function converts our .csv file into a `waterWeatherStation` object. Then, if we provide a Landsat metadata file (.MTL file) we will be able to calculate the time-specific weather conditions at the time of satellite overpass.
 
-```{r}
+
+```r
 csvfile <- system.file("extdata", "apples.csv", package="water")
 MTLfile <- system.file("extdata", "L7.MTL.txt", package="water")
 WeatherStation <- read.WSdata(WSdata = csvfile, date.format = "%d/%m/%Y", 
@@ -70,22 +72,59 @@ WeatherStation <- read.WSdata(WSdata = csvfile, date.format = "%d/%m/%Y",
                               MTL = MTLfile)
 ```
 
-We can visualize our weather station data as: 
-```{r, fig.width = 5}
-print(WeatherStation)
+```
+## Warning in read.WSdata(WSdata = csvfile, date.format = "%d/%m/%Y", lat =
+## -35.42222, : As tz = "", assuming the weather station time zone is America/
+## Argentina/Buenos_Aires
+```
 
+We can visualize our weather station data as: 
+
+```r
+print(WeatherStation)
+```
+
+```
+## Weather Station @ lat: -35.42 long: -71.39 elev: 201 
+## Summary:
+##    radiation           wind              RH              ea        
+##  Min.   :  0.00   Min.   : 0.000   Min.   :17.39   Min.   :0.7455  
+##  1st Qu.:  0.00   1st Qu.: 0.205   1st Qu.:40.65   1st Qu.:1.2288  
+##  Median : 49.82   Median : 1.585   Median :64.83   Median :1.6472  
+##  Mean   :310.13   Mean   : 3.071   Mean   :60.78   Mean   :1.5156  
+##  3rd Qu.:719.29   3rd Qu.: 3.655   3rd Qu.:82.34   3rd Qu.:1.7741  
+##  Max.   :998.29   Max.   :14.460   Max.   :94.04   Max.   :1.9672  
+##       temp            rain  
+##  Min.   :14.65   Min.   :0  
+##  1st Qu.:17.74   1st Qu.:0  
+##  Median :21.15   Median :0  
+##  Mean   :22.46   Mean   :0  
+##  3rd Qu.:27.36   3rd Qu.:0  
+##  Max.   :32.53   Max.   :0  
+## 
+##  Conditions at satellite flyby:
+##               datetime radiation wind    RH   ea  temp rain       date
+## 47 2013-02-15 11:30:40    752.92  1.1 68.86 1.89 22.59    0 2013-02-15
+```
+
+```r
 plot(WeatherStation, hourly=TRUE)
 ```
+
+![plot of chunk unnamed-chunk-4](figure/unnamed-chunk-4-1.png)
 
 
 After that, we need to load the Landast satellite image. Usually, using `water` we can use the 
 function called `loadImage` to load a Landsat image from `.TIF files` were downloaded directly
 from [Earth Explorer](http://earthexplorer.usgs.gov/). In this vignette we are
 going to use some Landsat 7 as example data which, by the way comes with **water** package as a demo.
-```{r, fig.width = 5}
+
+```r
 image.DN <- L7_Talca
 plot(image.DN)
 ```
+
+![plot of chunk unnamed-chunk-5](figure/unnamed-chunk-5-1.png)
 
 
 ## Surface Energy Balance estimation
@@ -100,35 +139,59 @@ We are going to use the function called `METRIC.EB` to estimate the land surface
 
 When we run `METRIC.EB`, the energy balance and the surface temperature (Ts) used are assigned to `Energy.Balance` object. Also the function prints the position and some other data from the anchors pixels, and finally plots the values of the aerodinamic resistance during the iterative process. Here is a parameter `verbose` to control how much information we want to see in the output.
 
-```{r, fig.width = 5, warning=FALSE}
+
+```r
 Energy.Balance <- METRIC.EB(image.DN = image.DN, plain=TRUE, 
                             WeatherStation = WeatherStation, 
                             ETp.coef = 1.2, MTL=MTLfile, n = 5,
                             sat="L7", thermalband=image.DN$thermal.low)
 ```
 
+```
+##     pixel      X       Y       Ts  LAI type
+## 1  110205 287250 6079210 327.1150 0.07  hot
+## 2   47495 280470 6082900 327.1127 0.08  hot
+## 3   61857 284610 6082060 327.1097 0.09  hot
+## 4   23468 275940 6084310 326.5707 0.02  hot
+## 5   22009 277890 6084400 326.5629 0.05  hot
+## 6   49291 273390 6082780 307.5172 4.08 cold
+## 7  137237 275250 6077590 307.5172 3.89 cold
+## 8   50832 273900 6082690 308.1460 3.67 cold
+## 9   74734 274680 6081280 308.1460 4.34 cold
+## 10 129603 274830 6078040 308.1460 4.35 cold
+```
+
+![plot of chunk unnamed-chunk-6](figure/unnamed-chunk-6-1.png)
+
 Now we can plot the results using:
 
-```{r, fig.width = 5}
+
+```r
 plot(Energy.Balance$EB)
 ```
+
+![plot of chunk unnamed-chunk-7](figure/unnamed-chunk-7-1.png)
 
 ## Daily Crop Evapotranspiration (ET_24) estimation
 
 To estimate the daily crop evapotranspiration from the *Landsat scene* we need the daily reference ET (ETr) for our weather station, so we can calculate the daily ETr with:
 
-```{r}
+
+```r
 ET_WS <- dailyET(WeatherStation = WeatherStation, MTL = MTLfile)
 ```
 
 And finally, we can estimate daily crop ET pixel by pixel:
 
-```{r, fig.width = 5, warning=FALSE}
+
+```r
 ET.24 <- ET24h(Rn=Energy.Balance$EB$NetRadiation, G=Energy.Balance$EB$SoilHeat, 
                H=Energy.Balance$EB$SensibleHeat, 
                Ts=Energy.Balance$EB$surfaceTemperature, 
                WeatherStation = WeatherStation, ETr.daily=ET_WS)
 ```
+
+![plot of chunk unnamed-chunk-9](figure/unnamed-chunk-9-1.png)
 
 ## References
 

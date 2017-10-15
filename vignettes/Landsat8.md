@@ -1,7 +1,7 @@
 ---
 title: "Using Landsat 8 data with METRIC and water package"
 author: "Guillermo Federico Olmedo"
-date: "`r Sys.Date()`"
+date: "2017-09-12"
 output: rmarkdown::html_vignette
 vignette: >
   %\VignetteIndexEntry{Landsat 8}
@@ -19,7 +19,8 @@ Landsat 8 has two new spectral bands: a deep blue visible channel (band 1) speci
 
 As Landsat scenes are almost 1Gb in size, we do not recommend using one complete scene without cropping an area-of-interest first. An area-of-interest can be defined using `createAoi()` function:
 
-```{r, message=FALSE}
+
+```r
 library(water)
 aoi <- createAoi(topleft = c(500000, -3644000), bottomright = c(526000, -3660000))
 ```
@@ -27,16 +28,20 @@ aoi <- createAoi(topleft = c(500000, -3644000), bottomright = c(526000, -3660000
 To be able to run METRIC with Landsat 8 data, the ESPA surface reflectance products must be available in the working directory. If we list the contents of the L8 example files provided with water, we can see we have 38 files: 2 metadata files, the original and the one from ESPA and 14 tif files with the raw data.
 The Landsat scene can loaded using `loadImage()` function. And the SR data with `loadImage.SR`:
 
-```{r, warning=FALSE, fig.width = 7}
+
+```r
 raw_data_folder <- system.file("extdata", package="water")
 image <- loadImage(path=raw_data_folder, aoi=aoi, sat="L8")
 image.SR <- loadImageSR(path=raw_data_folder, aoi=aoi)
 plot(image)
 ```
 
+![plot of chunk unnamed-chunk-2](figure/unnamed-chunk-2-1.png)
+
 Finally, the simple procedure for estimating METRIC can be applied to the image:
 
-```{r, warning=FALSE, fig.width = 7}
+
+```r
 csvfile <- system.file("extdata", "INTA.csv", package="water")
 MTLfile <- system.file("extdata", "LC82320832016040LGN00_MTL.txt", package="water")
 WeatherStation <- read.WSdata(WSdata = csvfile, 
@@ -49,5 +54,26 @@ Energy.Balance <- METRIC.EB(image.DN = image, image.SR = image.SR,
                             plain=TRUE, aoi=aoi, n = 5, WeatherStation = WeatherStation, 
                             ETp.coef = 1.2, sat="L8", alb.coeff = "Olmedo", LST.method = "SW", 
                             LAI.method = "metric2010", Z.om.ws = 0.03, MTL = MTLfile)
+```
+
+```
+##    pixel      X        Y       Ts  LAI type
+## 1  10585 513390 -3652710 309.7776 0.05  hot
+## 2   4700 513480 -3651750 309.7626 0.13  hot
+## 3  24367 512850 -3654960 308.6836 0.03  hot
+## 4  17201 513150 -3653790 308.4908 0.13  hot
+## 5  23712 515280 -3654840 308.2281 0.13  hot
+## 6   1533 512310 -3651240 302.7335 3.32 cold
+## 7   5608 513120 -3651900 303.1373 4.37 cold
+## 8  12126 515460 -3652950 303.1953 3.08 cold
+## 9   4794 510780 -3651780 303.6111 4.33 cold
+## 10  1138 511500 -3651180 303.7113 3.69 cold
+```
+
+![plot of chunk unnamed-chunk-3](figure/unnamed-chunk-3-1.png)
+
+```r
 plot(Energy.Balance$EB)
 ```
+
+![plot of chunk unnamed-chunk-3](figure/unnamed-chunk-3-2.png)

@@ -13,8 +13,9 @@
 #' See Details.
 #' @param LAI.method       Method used to estimate LAI from spectral data. 
 #' See Details.
+#' @family METRIC model functions
 #' @author Guillermo F Olmedo, \email{guillermo.olmedo@@gmail.com}
-#' @references 
+#' @references
 #' R. G. Allen, M. Tasumi, and R. Trezza, "Satellite-based energy balance for mapping evapotranspiration with internalized calibration (METRIC) - Model" Journal of Irrigation and Drainage Engineering, vol. 133, p. 380, 2007
 #' @export
 METRIC.Rn <- function(image.DN, WeatherStation, MTL, sat = "auto", thermalband, 
@@ -69,6 +70,7 @@ METRIC.Rn <- function(image.DN, WeatherStation, MTL, sat = "auto", thermalband,
 #' if plain = TRUE
 #' @param aoi              SpatialPolygon object with limits of Area of interest
 #' @author Guillermo F Olmedo, \email{guillermo.olmedo@@gmail.com}
+#' @family METRIC model functions
 #' @references 
 #' R. G. Allen, M. Tasumi, and R. Trezza, "Satellite-based energy balance for mapping evapotranspiration with internalized calibration (METRIC) - Model" Journal of Irrigation and Drainage Engineering, vol. 133, p. 380, 2007
 #' @export
@@ -115,33 +117,75 @@ METRIC.G <- function(image.DN, WeatherStation=WeatherStation, Rn,
 #' "SW" is only available for L8. See \code{water::surfaceTemperature}
 #' @param LAI.method       Method used to estimate LAI from spectral data. 
 #' See Details.
+#' @param L                L value for SAVI calculation
 #' @param Zom.method       method selected to calculate momentum roughness 
 #' length. Use "short.crops" for short crops methods from Allen et al (2007); 
 #' "custom" for custom method also in Allen et al (2007); Or "Perrier" to use 
 #' Perrier equation as in Santos et al (2012) and Pocas et al (2014).
-#' @param anchors.method   method to select anchor pixels. Currently only 
-#' "CITRA-MCB" automatic method available.
+#' @param anchors.method   method for the automatic selection of the anchor pixels. 
+#' @param anchors          data.frame or SpatialPointsDataFrame with the anchor
+#'                         pixels. The data frame must include a "type" column 
+#'                         with "hot" and "cold" values.
 #' @param n                number of pair of anchors pixels to calculate
 #' @param ETp.coef         ETp coefficient usually 1.05 or 1.2 for alfalfa
 #' @param Z.om.ws          momentum roughness lenght for WeatherStation. Usually
 #' 0.0018 or 0.03 for long grass
 #' @param verbose          Logical. If TRUE will print aditional data to console
+#' @param extraParameters  Extra parameters for the non default methods. i.e. 
+#' Zom.method = "Perrier", needs two extra parameters: fLAI, h. See 
+#' help(momentumRoughnessLength).
 #' @details
 #' There are differents models to convert narrowband data to broadband albedo. 
 #' You can choose alb.coeff ="Tasumi" to use Tasumi et al (2008) coefficients, 
 #' calculated for Landsat 7; alb.coeff ="Liang" to use Liang Landsat 7 
 #' coefficients or "Olmedo" to use Olmedo coefficients for Landsat 8.
+#' @section Extra Parameters:
+#' Extra Paramenters for functions inside METRIC.EB() include:
+#' * for momentumRoughness when Zom.method = "Perrier": fLAI, h.
+#' * for calcAnchors(): minDist, WSbuffer, deltaTemp
 #' @author Guillermo F Olmedo, \email{guillermo.olmedo@@gmail.com}
+#' @family METRIC model functions
 #' @references 
 #' R. G. Allen, M. Tasumi, and R. Trezza, "Satellite-based energy balance for mapping evapotranspiration with internalized calibration (METRIC) - Model" Journal of Irrigation and Drainage Engineering, vol. 133, p. 380, 2007
+#' @examples 
+#' ### Data preparation
+#' library(water)
+#' aoi <- createAoi(topleft = c(500000, -3644000), bottomright = c(526000, -3660000))
+#' raw_data_folder <- system.file("extdata", package="water")
+#' image <- loadImage(path=raw_data_folder, aoi=aoi, sat="L8")
+#' image.SR <- loadImageSR(path=raw_data_folder, aoi=aoi)
+#' csvfile <- system.file("extdata", "INTA.csv", package="water")
+#' MTLfile <- system.file("extdata", "LC82320832016040LGN00_MTL.txt", package="water")
+#' \dontrun{
+#' WeatherStation <- read.WSdata(WSdata = csvfile, 
+#'                               datetime.format =  "%Y/%m/%d %H:%M", 
+#'                               columns = c("datetime", "temp",
+#'                                           "RH", "pp", "radiation", "wind"), 
+#'                               lat=-33.00513, long= -68.86469, elev=927, height= 2,
+#'                               MTL=MTLfile)
+#'                               
+#' ### LSEB with default methods and no extra parameters                               
+#' Energy.Balance <- METRIC.EB(image.DN = image, image.SR = image.SR,
+#'                             plain=TRUE, aoi=aoi, n = 5, WeatherStation = WeatherStation, 
+#'                             ETp.coef = 1.2, sat="L8", alb.coeff = "Olmedo", LST.method = "SW", 
+#'                             LAI.method = "metric2010", Z.om.ws = 0.03, MTL = MTLfile)
+#'                             
+#'                             
+#' ### LSEB with "Perrier" method for Zom and extra parameters                               
+#' Energy.Balance <- METRIC.EB(image.DN = image, image.SR = image.SR,
+#'                             plain=TRUE, aoi=aoi, n = 5, WeatherStation = WeatherStation, 
+#'                             ETp.coef = 1.2, sat="L8", alb.coeff = "Olmedo", LST.method = "SW", 
+#'                             LAI.method = "metric2010", Zom.method = "Perrier", Z.om.ws = 0.03, 
+#'                             MTL = MTLfile, extraParameters = c(fLAI = 0.5, h = 1.8) ) 
+#' }
 #' @export
 METRIC.EB <- function(image.DN, image.SR, WeatherStation, MTL, sat = "auto",
                       thermalband, plain=TRUE, DEM, aoi,
                       alb.coeff = "Tasumi", LST.method = "SC",
-                      LAI.method = "metric2010", 
+                      LAI.method = "metric2010", L = 0.1,
                       Zom.method = "short.crops", anchors.method = "CITRA-MCB",
-                      n = 1, ETp.coef= 1.05, Z.om.ws=0.0018, 
-                      verbose = FALSE){
+                      anchors, n = 1, ETp.coef= 1.05, Z.om.ws=0.0018,
+                      verbose = FALSE, extraParameters = vector()){
   path=getwd()
   #pb <- txtProgressBar(min = 0, max = 100, style = 3)
   if(plain==TRUE){
@@ -170,7 +214,9 @@ METRIC.EB <- function(image.DN, image.SR, WeatherStation, MTL, sat = "auto",
   #setTxtProgressBar(pb, 6)
   if(sat=="MODIS"){image.TOAr <- image.DN} # Only used for LAI estimation,
   # and some LAI models, use SR
-  LAI <- LAI(method = LAI.method, image = image.TOAr, L=0.1)
+  if(LAI.method == "vineyard"){LAI <- LAI(method = LAI.method, image = image.DN, L=L)}
+  if(LAI.method == "turner"){LAI <- LAI(method = LAI.method, image = image.SR, L=L)}
+  if (LAI.method != "vineyard" & LAI.method != "turner"){LAI <- LAI(method = LAI.method, image = image.TOAr, L=L)}
   if(sat=="L7" | sat=="L8"){
     Ts <- surfaceTemperature(LAI=LAI, sat = sat, image.DN=image.DN,
                              WeatherStation = WeatherStation, method = LST.method)}
@@ -185,17 +231,43 @@ METRIC.EB <- function(image.DN, image.SR, WeatherStation, MTL, sat = "auto",
   G <- soilHeatFlux(image = image.SR, Ts=Ts,albedo=albedo, 
                     Rn=Rn, LAI=LAI)
   G[G < 0]  <-  0
-  Z.om <- momentumRoughnessLength(LAI=LAI, mountainous = TRUE, 
-                                  method = Zom.method, 
-                                  surface.model = surface.model)
+  if(Zom.method == "short.crops"){
+    Z.om <- momentumRoughnessLength(LAI=LAI, mountainous = !plain, 
+                                    method = Zom.method, 
+                                    surface.model = surface.model)
+  }
+  if(Zom.method == "custom"){
+    Z.om <- momentumRoughnessLength(LAI=LAI, mountainous = !plain, 
+                                    method = Zom.method, a = extraParameters["a"],
+                                    b = extraParameters["b"],
+                                    surface.model = surface.model)
+  }
+  if(Zom.method == "Perrier"){
+    Z.om <- momentumRoughnessLength(LAI=LAI, mountainous = !plain, 
+                                    method = Zom.method, fLAI = extraParameters["fLAI"],
+                                    h = extraParameters["h"],
+                                    surface.model = surface.model)
+  }
+  if(Zom.method != "short.crops"){Z.om.sc <- momentumRoughnessLength(LAI=LAI, mountainous = !plain, 
+                                                             method = "short.crops", 
+                                                             surface.model = surface.model)
+  } else {Z.om.sc <- Z.om}
   par(mfrow=c(1,2))
-  hot.and.cold <- calcAnchors(image = image.TOAr, Ts = Ts, LAI = LAI, plots = T,
-                              albedo = albedo, Z.om = Z.om, n = n, 
-                              anchors.method = anchors.method, WeatherStation = WeatherStation,
-                              deltaTemp = 5, verbose = verbose)
-  print(hot.and.cold)
+  if(missing(anchors)){
+    if(is.na(extraParameters["deltaTemp"])){extraParameters['deltaTemp'] = 5}
+    if(is.na(extraParameters["minDist"])){extraParameters['minDist'] = 500}
+    if(is.na(extraParameters["WSbuffer"])){extraParameters['WSbuffer'] = 30000}
+    anchors <- calcAnchors(image = image.TOAr, Ts = Ts, LAI = LAI, plots = T,
+                           albedo = albedo, Z.om = Z.om.sc, n = n, 
+                           anchors.method = anchors.method, WeatherStation = WeatherStation,
+                           deltaTemp = extraParameters['deltaTemp'],
+                           minDist = extraParameters['minDist'],
+                           WSbuffer = extraParameters['WSbuffer'],
+                           verbose = verbose)
+    print(anchors)
+  }
   #setTxtProgressBar(pb, 45)
-  H <- calcH(anchors = hot.and.cold, Ts = Ts, Z.om = Z.om, mountainous = !plain,
+  H <- calcH(anchors = anchors, Ts = Ts, Z.om = Z.om, mountainous = !plain,
              WeatherStation = WeatherStation, ETp.coef = ETp.coef,
              Z.om.ws = Z.om.ws, DEM = DEM, Rn = Rn, G = G, verbose = verbose)
   par(mfrow=c(1,1))
@@ -209,6 +281,17 @@ METRIC.EB <- function(image.DN, image.SR, WeatherStation, MTL, sat = "auto",
                                 "LatentHeat", "surfaceTemperature"), 
                 file = "EB", overwrite=TRUE)
   #setTxtProgressBar(pb, 100)
-  return(EB)
+  result <- list()
+  result$EB <- EB
+  result$WeatherStation <- WeatherStation
+  coordinates(anchors) <- ~ X + Y
+  result$anchors <- anchors
+  result$methods <- c(sat = sat, alb.coeff = alb.coeff, LST.method = LST.method,
+                      LAI.method = LAI.method, Zom.method = Zom.method, 
+                      anchors.method = anchors.method, plain = plain,
+                      ETp.coef= ETp.coef, Z.om.ws=Z.om.ws,
+                      extraParameters = extraParameters)
+  class(result) <- "waterLSEB"
+  return(result)
 }
   
