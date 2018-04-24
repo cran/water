@@ -317,6 +317,7 @@ calcAnchors  <- function(image, Ts, LAI, albedo, Z.om, n=1, aoi,
     albedo:", optValCold[1,2], "to", optValCold[2,2], "
     Z.om:", optValCold[1,3], "to", optValCold[2,3], "
     and buffer ==", useBuffer))}
+    flex.cold <- flex
     ### Search for hots !
     hot.candidates <- values(albedo>=optValHot$albedo[1]) & values(albedo<=optValHot$albedo[2]) &
       values(NDVI>=optValHot$NDVI[1]) & values(NDVI<=optValHot$NDVI[2]) &
@@ -372,6 +373,7 @@ calcAnchors  <- function(image, Ts, LAI, albedo, Z.om, n=1, aoi,
     max Z.om:", optValHot[2,3], "
     min Ts:", optValHot[1,4], "
     and buffer ==", useBuffer))}
+    flex.hot <- flex
     ### Test # anchors
     cold.n <- sum(as.numeric(cold.candidates), na.rm = T)
     hot.n <- sum(as.numeric(hot.candidates), na.rm = T)
@@ -447,14 +449,18 @@ calcAnchors  <- function(image, Ts, LAI, albedo, Z.om, n=1, aoi,
     graphics::points(WSloc, pch=13)
   }
   hot.and.cold <- data.frame(pixel=integer(),  X=integer(), 
-                             Y=integer(), Ts=double(), LAI=double(), 
+                             Y=integer(), Ts=double(), LAI=double(), NDVI=double(), 
                              type=factor(levels = c("hot", "cold")))
   for(i in 1:length(hot)){hot.and.cold[i, ] <- c(hot[i], xyFromCell(LAI, hot[i]),
-                                                 Ts[hot][i], round(LAI[hot][i],2), "hot")}
+                                                 Ts[hot][i], round(LAI[hot][i],2), round(NDVI[hot][i],2), "hot")}
   for(i in 1:length(cold)){hot.and.cold[i+length(hot), ] <- c(cold[i], xyFromCell(LAI, cold[i]), 
-                                                              Ts[cold][i], round(LAI[cold][i],2), "cold")}
+                                                              Ts[cold][i], round(LAI[cold][i],2), round(NDVI[cold][i],2), "cold")}
   for(i in 1:5){
     hot.and.cold[,i] <- as.numeric(hot.and.cold[,i])
+  }
+  if(anchors.method=="flexible"){
+    hot.and.cold$flex <- flex.cold
+    #hot.and.cold$flex[hot.and.cold$type == "hot"] <- flex.hot
   }
   return(hot.and.cold)
 }
