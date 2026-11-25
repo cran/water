@@ -2,24 +2,45 @@
 % Please edit documentation in R/water_netRadiation.G.R
 \name{prepareSRTMdata}
 \alias{prepareSRTMdata}
-\title{Create a mosaic with SRTM grid from image extent}
+\title{Create a DEM mosaic from SRTM grids for the image extent}
 \usage{
 prepareSRTMdata(path = getwd(), format = "tif", extent)
 }
 \arguments{
 \item{path}{folder where SRTM files are stored}
 
-\item{format}{format of SRTM grid files}
+\item{format}{file extension of the SRTM grid files (default "tif"); files
+must be named like s34_w069_1arc_v3.tif}
 
-\item{extent}{minimal extent of mosaic}
+\item{extent}{SpatRaster (e.g. the Landsat image) whose grid is used for the
+output DEM, or an sf / SpatVector polygon with a CRS, in which case a 30 m
+grid in that CRS is used}
+}
+\value{
+SpatRaster with one layer named DEM (m), on the grid defined by
+extent.
 }
 \description{
-Create a mosaic with SRTM grid from image extent
+Mosaics the SRTM 1 arc-second tiles found in path (see \code{\link{checkSRTMgrids}}) and
+projects the result to the grid of the image.
+}
+\examples{
+image.DN <- terra::rast(L7_Talca)
+# tiles needed to cover the image (to download from EarthExplorer)
+checkSRTMgrids(image.DN)
+\dontrun{
+# with the tiles in a folder: mosaic and crop them to the grid of the image
+DEM <- prepareSRTMdata(path = "folder/with/the/SRTM/tiles", extent = image.DN)
+}
 }
 \seealso{
-Other support functions: \code{\link{checkSRTMgrids}},
-  \code{\link{createAoi}}
+Other support functions:
+\code{\link[=checkSRTMgrids]{checkSRTMgrids()}},
+\code{\link[=createAoi]{createAoi()}},
+\code{\link[=getDEM]{getDEM()}},
+\code{\link[=waterOptions]{waterOptions()}}
 }
 \author{
 Guillermo Federico Olmedo
 }
+\concept{support functions}

@@ -2,36 +2,155 @@
 % Please edit documentation in R/water_METRIC.R
 \name{METRIC.G}
 \alias{METRIC.G}
-\title{Estimates Net Radiation as in METRIC Model}
+\title{Estimates Soil Heat Flux as in METRIC Model}
 \usage{
-METRIC.G(image.DN, WeatherStation = WeatherStation, Rn, plain = TRUE, DEM,
-  aoi)
+METRIC.G(
+  image.DN,
+  image.SR,
+  WeatherStation,
+  MTL,
+  sat = "auto",
+  thermalband,
+  plain = TRUE,
+  DEM,
+  aoi,
+  G.method = "Tasumi",
+  alb.coeff = "auto",
+  LST.method = "auto",
+  LAI.method = "metric2010",
+  L = 0.1,
+  surf.temp,
+  Kt = 1,
+  Rn,
+  plots = interactive()
+)
 }
 \arguments{
-\item{image.DN}{raw imagen in digital counts to evaluate}
+\item{image.DN}{Raw image in digital counts. Optional if image.SR and
+surf.temp are supplied. If supplied (L7/L8/L9) it is used for TOA
+reflectance (LAI) and, without surf.temp, for surface temperature.}
 
-\item{WeatherStation}{Weather Station data, can be a waterWeatherStation 
-object}
+\item{image.SR}{Surface reflectance image with layers B, G, R, NIR,
+SWIR1 and SWIR2, e.g. from loadImageSR(). Required for L8 and L9; for L7
+it is computed from image.DN if missing.
+Layers are selected by name; a stack without the standard names is used by
+position, with a warning, and a stack with these names that lacks a needed
+layer is an error.}
 
-\item{Rn}{RasterLayer with Net Radiation data in W/m2}
+\item{WeatherStation}{waterWeatherStation object with the conditions at
+the satellite overpass (from read.WSdata() with the MTL file)}
 
-\item{plain}{Logical. If TRUE surface is assumed plain}
+\item{MTL}{path to the Landsat metadata (*_MTL.txt) file.
+Required}
 
-\item{DEM}{Digital Elevation Model of the study area. Not needed
-if plain = TRUE}
+\item{sat}{Satellite: "L7", "L8", "L9", "MODIS" or "auto" to
+detect it from the MTL file}
 
-\item{aoi}{SpatialPolygon object with limits of Area of interest}
+\item{thermalband}{Thermal band in digital numbers (L7: band 6 low gain;
+L8/L9: band 10). If missing, image.DN$Thermal1 is used. Not needed if
+surf.temp is supplied}
+
+\item{plain}{Logical. If TRUE (default) the surface is assumed
+flat: DEM is replaced by a constant raster at the weather station elevation}
+
+\item{DEM}{SpatRaster with a digital elevation model (m) of the
+study area, on the same grid as the image. Not needed if plain = TRUE}
+
+\item{aoi}{Optional sf polygon or SpatVector. If given, the
+inputs are cropped to it}
+
+\item{G.method}{method used for the G estimation: "Tasumi" (Tasumi,
+2003; default) or "Bastiaanssen" (Bastiaanssen, 2000). See \code{\link{soilHeatFlux}}}
+
+\item{alb.coeff}{coefficient to transform narrow to broad band albedo:
+"auto" (default; "Olmedo" for L8 and L9, "Tasumi" for L7 and MODIS),
+"Tasumi", "Olmedo" or "Liang". See Details.}
+
+\item{LST.method}{Land surface temperature when surf.temp is not
+supplied: "auto" (default) uses the Level-2 surface temperature
+(image.SR$Band_10 from loadImageSR()) for L8 and L9 when present (also
+when image.DN is given), and the
+METRIC equations (Allen et al., 2007, Eqs. 20-21) with image.DN otherwise;
+"L2" requires Band_10; "METRIC" uses the thermal band of image.DN; "SW"
+(split window, L8 and L9) is deprecated. For a per-pixel atmospheric
+correction, compute Ts with surfaceTemperature(atmosphere = ) and pass it as
+surf.temp. See \code{\link{surfaceTemperature}}}
+
+\item{LAI.method}{Method used to estimate LAI from spectral data.
+See Details.}
+
+\item{L}{L value for SAVI calculation. See \code{\link{LAI}}}
+
+\item{surf.temp}{Optional. Surface temperature raster in Kelvin, on the
+same grid as image.SR (e.g. image.SR$Band_10 from loadImageSR()). If
+supplied it is used as Ts and surfaceTemperature() is not called.
+Must be in Kelvin: values that look like Celsius, or more than 1\% of the
+cells below 200 K (unmasked fill or clouds), stop; fewer cells below 200 K
+give a warning.}
+
+\item{Kt}{clearness (turbidity) coefficient of the atmosphere,
+0 < Kt <= 1: 1 (default) for clean air, 0.5 for extremely turbid, dusty or
+polluted air (Allen et al., 2007). See \code{\link{SWtransmissivity}}}
+
+\item{Rn}{Net radiation in W/m2, e.g. from METRIC.Rn(). If
+missing it is computed as in METRIC.Rn()}
+
+\item{plots}{Logical. If TRUE the results are plotted (default:
+only in interactive sessions)}
+}
+\value{
+SpatRaster with soil heat flux G (W/m2). Plotted with plots = TRUE.
 }
 \description{
-Estimates Net Radiation as in METRIC Model
+Estimates the soil heat flux (G) as in the METRIC model.
+Inputs are the same as in METRIC.Rn(). For Landsat 8 and 9, use Collection 2
+Level-2 surface reflectance as image.SR and surface temperature as surf.temp.
+}
+\details{
+There are different models to convert narrowband data to broadband albedo.
+With alb.coeff = "auto" (default) the coefficients are Olmedo for Landsat 8
+and 9, Tasumi for Landsat 7 and MODIS.
+You can choose alb.coeff = "Tasumi" to use Tasumi et al. (2008)
+coefficients, calculated for Landsat 7; alb.coeff = "Liang" to use Liang
+(2001) Landsat 7 coefficients or alb.coeff = "Olmedo" to use Olmedo
+coefficients for Landsat 8 and 9. See \code{\link{albedo}}.
+
+LAI.method can be "metric2010" (default), "metric", "MCB", "turner" or
+"vineyard". See \code{\link{LAI}}. Without image.DN, the leaf area index is
+computed from the surface reflectance (image.SR), although the "metric",
+"metric2010" and "MCB" equations were described for top-of-atmosphere
+reflectance.
+
+Method arguments (sat, alb.coeff, LAI.method, LST.method and, where they
+apply, G.method, Zom.method and anchors.method) must be one of the listed
+names, exactly (case included): an unknown name stops before any
+computation, with a hint for typos.
+}
+\examples{
+scene_folder <- system.file("extdata", "L8_C2", package = "water")
+image.SR <- loadImageSR(path = scene_folder)
+MTLfile <- list.files(scene_folder, pattern = "MTL.txt$", full.names = TRUE)
+csvfile <- system.file("extdata", "INTA.csv", package = "water")
+WeatherStation <- read.WSdata(WSdata = csvfile, datetime.format = "\%Y/\%m/\%d \%H:\%M",
+                              columns = c("date" = 1, "time" = 1, "radiation" = 5,
+                                          "wind" = 6, "RH" = 3, "temp" = 2, "rain" = 4),
+                              lat = -33.00513, long = -68.86469, elev = 927, height = 2,
+                              tz = "America/Argentina/Mendoza", MTL = MTLfile)
+G <- METRIC.G(image.SR = image.SR, surf.temp = image.SR$Band_10,
+              WeatherStation = WeatherStation, MTL = MTLfile,
+              alb.coeff = "Olmedo")
 }
 \references{
 R. G. Allen, M. Tasumi, and R. Trezza, "Satellite-based energy balance for mapping evapotranspiration with internalized calibration (METRIC) - Model" Journal of Irrigation and Drainage Engineering, vol. 133, p. 380, 2007
 }
 \seealso{
-Other METRIC model functions: \code{\link{METRIC.EB}},
-  \code{\link{METRIC.Rn}}
+Other METRIC model functions:
+\code{\link[=METRIC.EB]{METRIC.EB()}},
+\code{\link[=METRIC.Rn]{METRIC.Rn()}},
+\code{\link[=anchors.control]{anchors.control()}},
+\code{\link[=calcH.control]{calcH.control()}}
 }
 \author{
-Guillermo F Olmedo, \email{guillermo.olmedo@gmail.com}
+Guillermo Federico Olmedo
 }
+\concept{METRIC model functions}

@@ -1,24 +1,41 @@
 Package: water
 Title: Actual Evapotranspiration with Energy Balance Models
-Version: 0.8
-Date: 2018-04-24
-Author: Guillermo Federico Olmedo [aut, cre], Samuel Ortega-Farías [aut],
-    David Fonseca-Luengo [aut], Daniel de la Fuente-Sáiz [aut], Fernando Fuentes
-    Peñailillo [aut], María Victoria Munafó [ctb]
-Maintainer: Guillermo Federico Olmedo <guillermo.olmedo@gmail.com>
-Description: Tools and functions to calculate actual Evapotranspiration
-    using surface energy balance models.
-Depends: R (>= 3.4), raster (>= 2.5), sp (>= 1.2), rgdal (>= 1.2)
-Imports:
+Version: 1.0
+Date: 2026-10-19
+Authors@R: c(
+	person("Guillermo Federico", "Olmedo", role = c("cre", "aut"), email = "guillermo.olmedo@gmail.com", comment=c(ORCID="0000-0002-4482-3266")),
+	person("Samuel", "Ortega-Farías", role = "aut"),
+	person("David", "Fonseca-Luengo", role = "aut"),
+	person("Daniel", "de la Fuente-Sáiz", role = "aut"),
+	person("Fernando", "Fuentes-Peñailillo", role = "aut"),
+	person("María Victoria", "Munafó", role = "ctb"),
+	person("Francisco Martín", "Corvalán", role = "ctb"))
+Description: Estimates actual evapotranspiration with
+    surface energy balance models. Implements the METRIC model (Allen et al.
+    (2007) <doi:10.1061/(ASCE)0733-9437(2007)133:4(380)>) for Landsat 7, 8 and 9
+    images, including Collection 2 Level-2 surface reflectance and surface
+    temperature products, together with weather station data processing and
+    reference evapotranspiration (ASCE Penman-Monteith).
+Depends: R (>= 3.5.0), terra (>= 1.7-0)
+Imports: sf (>= 1.0-0), methods, grDevices, graphics, stats, utils
 License: GPL (>= 2)
-URL: http://midraed.github.io/water
-BugReports: https://github.com/midraed/water/issues
+URL: https://midraed.github.io/water/
+BugReports: https://github.com/midraed/water/issues/
 LazyData: true
 Suggests: knitr, rmarkdown
 VignetteBuilder: knitr
 Encoding: UTF-8
-RoxygenNote: 6.0.1
+Config/roxygen2/version: 8.0.0
 NeedsCompilation: no
-Packaged: 2018-04-24 18:04:06 UTC; guillermo
+Packaged: 2026-11-03 20:17:08 UTC; guillermo.olmedo
+Author: Guillermo Federico Olmedo [cre, aut] (ORCID:
+    <https://orcid.org/0000-0002-4482-3266>),
+  Samuel Ortega-Farías [aut],
+  David Fonseca-Luengo [aut],
+  Daniel de la Fuente-Sáiz [aut],
+  Fernando Fuentes-Peñailillo [aut],
+  María Victoria Munafó [ctb],
+  Francisco Martín Corvalán [ctb]
+Maintainer: Guillermo Federico Olmedo <guillermo.olmedo@gmail.com>
 Repository: CRAN
-Date/Publication: 2018-04-24 18:22:17 UTC
+Date/Publication: 2026-11-25 11:50:02 UTC

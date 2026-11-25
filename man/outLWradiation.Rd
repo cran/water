@@ -2,17 +2,45 @@
 % Please edit documentation in R/water_netRadiation.G.R
 \name{outLWradiation}
 \alias{outLWradiation}
-\title{Calculates Long wave outgoing radiation}
+\title{Calculates outgoing long-wave radiation}
 \usage{
 outLWradiation(LAI, Ts)
 }
 \arguments{
-\item{LAI}{raster layer with leaf area index. See LAI()}
+\item{LAI}{SpatRaster with leaf area index, from LAI()}
 
-\item{Ts}{Land surface temperature. See surfaceTemperature()}
+\item{Ts}{land surface temperature (K), from surfaceTemperature()}
+}
+\value{
+SpatRaster with outgoing long-wave radiation (W/m2).
 }
 \description{
-This function estimates the long wave outgoing radiation using the Stefan-Boltzmann equation.
+This function estimates the outgoing long-wave radiation using the
+Stefan-Boltzmann equation.
+}
+\examples{
+# a small window of the Landsat 7 example scene, to run quickly
+MTL <- system.file("extdata", "L7.MTL.txt", package = "water")
+WeatherStation <- read.WSdata(WSdata = system.file("extdata", "apples.csv", package = "water"),
+  date.format = "\%d/\%m/\%Y", lat = -35.42222, long = -71.38639, elev = 201, height = 2.2,
+  cf = c(1, 0.2777778, 1), tz = "America/Santiago", MTL = MTL)
+image.DN <- terra::rast(L7_Talca)[1:60, 1:80, drop = FALSE]
+DEM <- terra::rast(DEM_Talca)[1:60, 1:80, drop = FALSE]
+surface.model <- METRICtopo(DEM)
+solar.angles <- solarAngles(surface.model = surface.model,
+                            WeatherStation = WeatherStation, MTL = MTL)
+Rs.inc <- incSWradiation(surface.model = surface.model, solar.angles = solar.angles,
+                         WeatherStation = WeatherStation)
+image.TOAr <- calcTOAr(image.DN, sat = "L7", MTL = MTL,
+                       incidence.rel = solar.angles$incidence.rel)
+image.SR <- suppressWarnings(calcSR(image.TOAr, sat = "L7", surface.model = surface.model,
+                   incidence.hor = solar.angles$incidence.hor, WeatherStation = WeatherStation))
+albedo <- albedo(image.SR, coeff = "Tasumi", sat = "L7")
+LAI <- LAI(method = "metric2010", image = image.TOAr, L = 0.1)
+Ts <- suppressWarnings(surfaceTemperature(image.DN = image.DN, LAI = LAI, sat = "L7",
+                                          WeatherStation = WeatherStation))
+Rl.out <- outLWradiation(LAI = LAI, Ts = Ts)
+plot(Rl.out)
 }
 \references{
 R. G. Allen, M. Tasumi, and R. Trezza, "Satellite-based energy balance for 
@@ -20,15 +48,21 @@ mapping evapotranspiration with internalized calibration (METRIC) - Model"
 Journal of Irrigation and Drainage Engineering, vol. 133, p. 380, 2007 \cr
 }
 \seealso{
-Other net radiation related functions: \code{\link{LAI}},
-  \code{\link{METRICtopo}}, \code{\link{SWtrasmisivity}},
-  \code{\link{albedo}}, \code{\link{incLWradiation}},
-  \code{\link{incSWradiation}}, \code{\link{netRadiation}},
-  \code{\link{soilHeatFlux}}, \code{\link{solarAngles}},
-  \code{\link{surfaceTemperature}}
+Other net radiation related functions:
+\code{\link[=LAI]{LAI()}},
+\code{\link[=METRICtopo]{METRICtopo()}},
+\code{\link[=SWtransmissivity]{SWtransmissivity()}},
+\code{\link[=albedo]{albedo()}},
+\code{\link[=incLWradiation]{incLWradiation()}},
+\code{\link[=incSWradiation]{incSWradiation()}},
+\code{\link[=netRadiation]{netRadiation()}},
+\code{\link[=soilHeatFlux]{soilHeatFlux()}},
+\code{\link[=solarAngles]{solarAngles()}},
+\code{\link[=surfaceTemperature]{surfaceTemperature()}}
 }
 \author{
 Guillermo Federico Olmedo
 
-Fonseca-Luengo, David
+David Fonseca-Luengo
 }
+\concept{net radiation related functions}

@@ -1,24 +1,48 @@
-#' Calculates ET using Penman Monteith hourly formula
-#' @param WeatherStation     a data frame with all the needed fields (see 
-#' example)
-#' @param hours              time of the day in hours in 24hs format
+#' Calculates hourly reference ET with the ASCE Penman-Monteith equation
+#' @description
+#' Calculates the hourly (or instantaneous) reference evapotranspiration with
+#' the ASCE standardized Penman-Monteith equation, for a short (ETo, grass) or a
+#' tall (ETr, alfalfa) reference crop.
+#' @param WeatherStation     data.frame with the needed fields (see example),
+#' or a waterWeatherStation object with the conditions at the satellite
+#' overpass; in that case they are used and ET.instantaneous is set to TRUE
+#' @param hours              time of the day in decimal hours (24 h clock),
+#' e.g. 10.5 for 10:30
 #' @param DOY                day of year
-#' @param long.z             longitude for local time
-#' @param ET.instantaneous   Logical. True if you want to calculate 
-#' instantaneous ET instead of hourly ET. See Details.
+#' @param long.z             longitude of the centre of the time zone of the
+#' weather station clock, in decimal degrees (negative west), for the solar
+#' time correction. By default it is computed from the UTC offset of the
+#' station records (15 degrees per hour, e.g. -45 for UTC-3, including daylight
+#' saving time): from WeatherStation$long.z (see \code{\link{getDataWS}}) or from the time
+#' zone of WeatherStation$datetime. If the time zone is unknown, the station
+#' longitude is used (no correction)
+#' @param ET.instantaneous   Logical. TRUE to calculate instantaneous ET
+#' instead of hourly ET. See Details.
 #' @param ET       "ETo" for short crops, similar to clipped, cool-season
-#' grass; or "ETr" for tall crops, similar to 0.5 m tall full-cover alfalfa.
+#' grass; or "ETr" (default) for tall crops, similar to 0.5 m tall full-cover
+#' alfalfa.
 #' @param height             weather station sensors height in meters
 #' @param lat                latitude of weather station in decimal degrees. 
 #' Negative values for south latitude
 #' @param long               longitude of weather station in decimal degrees. 
 #' Negative values for west longitude
 #' @param elev               elevation of weather station in meters
-#' @details 
-#' The only difference on instantaneous ET is how the hour is interpreted. On 
-#' FALSE, and for example at 11:00, ET is calculated between 10:00 and 11:00, 
-#' on TRUE Et is calculated at 11:00 hs.
-#' @return ET hourly in mm.h-1
+#' @details
+#' The only difference on instantaneous ET is how the hour is interpreted. With
+#' FALSE, and for example at 11:00, ET is calculated between 10:00 and 11:00;
+#' with TRUE, ET is calculated at 11:00.
+#'
+#' The equations follow ASCE-EWRI (2005): Rs/Rso is limited to 0.3-1 (Eq.
+#' 45), the extraterrestrial radiation is integrated between sunrise and
+#' sunset (Eqs. 48 and 56-58), the daytime and nighttime coefficients Cd and G
+#' are chosen by Rn > 0 (Table 1), and T + 273 is used in the aerodynamic term
+#' and T + 273.16 in the net long-wave radiation. For a single period at night
+#' (sun angle below 0.3 rad) the cloudiness function cannot be computed and
+#' Rs/Rso = 0.3 is used; dailyET() carries the value of the last sunny period
+#' over the night instead (Eq. 46).
+#' @return Numeric. Hourly (or, with ET.instantaneous = TRUE, instantaneous)
+#' reference ET (mm/h).
+#' @family ET functions
 #' @author Guillermo Federico Olmedo
 #' @examples 
 #' WeatherStation  <- data.frame(wind=4.72,
@@ -27,15 +51,18 @@
 #'                               radiation=675, 
 #'                               height=2.2, 
 #'                               lat=-35.37, 
-#'                               long=71.5946, 
+#'                               long=-71.5946,
 #'                               elev=124)
-#'   hourlyET(WeatherStation, hours=10.5, DOY=363, long.z=71.635)
+#'   hourlyET(WeatherStation, hours=10.5, DOY=363, long.z=-71.635)
 #' @export
-#' @references 
-#' Allen 2005 ASCE
-hourlyET <- function(WeatherStation, hours, DOY, long.z=WeatherStation$long, 
+#' @references
+#' ASCE-EWRI (2005). The ASCE Standardized Reference Evapotranspiration
+#' Equation. Report of the ASCE-EWRI Task Committee on Standardization of
+#' Reference Evapotranspiration.
+hourlyET <- function(WeatherStation, hours, DOY, long.z=NULL,
                      ET.instantaneous=FALSE, ET="ETr", height=2, lat, long, elev){
-  if(class(WeatherStation)== "waterWeatherStation"){
+  checkChoice(ET, c("ETr", "ETo"), "ET")
+  if(inherits(WeatherStation, "waterWeatherStation")){
     if(!is.null(WeatherStation$at.sat)){
       WeatherStation <- getDataWS(WeatherStation)
       ET.instantaneous = TRUE
@@ -56,158 +83,372 @@ hourlyET <- function(WeatherStation, hours, DOY, long.z=WeatherStation$long,
       hours <- WeatherStation$hours
     } 
   }
-  tempK <- WeatherStation$temp + 273.16
-  Rs <- WeatherStation$radiation * 3600 / 1e6
-  P <- 101.3*((293-0.0065*WeatherStation$elev)/293)^5.26
-  psi <- 0.000665*P
-  Delta <- 2503 * exp((17.27*WeatherStation$temp)/
-                  (WeatherStation$temp+237.3))/((WeatherStation$temp+237.3)^2)
-  ea.sat <- 0.61078*exp((17.269*WeatherStation$temp)/
-                          (WeatherStation$temp+237.3))
-  ea <- (WeatherStation$RH/100)*ea.sat
+  if(is.null(long.z)){
+    long.z <- WeatherStation$long.z
+    if(is.null(long.z) && inherits(WeatherStation$datetime, "POSIXt")){
+      long.z <- tzLongitude(WeatherStation$datetime)
+    }
+    if(is.null(long.z)){long.z <- WeatherStation$long}  # time zone unknown
+  }
+  if(ET.instantaneous==TRUE){hours <- hours +0.5}
+  asceHourly(WeatherStation, hours = hours, DOY = DOY, long.z = long.z, ET = ET)$ET
+}
+
+# ASCE-EWRI (2005) standardized reference ET for the hours (periods) ending at
+# hours, with the station data in the data.frame WS (temp, RH, wind,
+# radiation, lat, long, elev, height). fcd: cloudiness function to use, e.g.
+# carried over the night by dailyET() (Eq. 46); if NULL it is computed from
+# Rs/Rso of each period. Returns a list with ET (mm/h), fcd and beta (sun
+# angle at the middle of the period, radians)
+asceHourly <- function(WS, hours, DOY, long.z, ET = "ETr", fcd = NULL){
+  temp <- WS$temp
+  Rs <- WS$radiation * 3600 / 1e6
+  P <- 101.3*((293-0.0065*WS$elev)/293)^5.26                  # Eq. 34
+  psi <- 0.000665*P                                           # Eq. 35
+  Delta <- 2503 * exp((17.27*temp)/(temp+237.3))/((temp+237.3)^2)  # Eq. 36
+  ea.sat <- 0.6108*exp((17.27*temp)/(temp+237.3))             # Eq. 37
+  ea <- (WS$RH/100)*ea.sat
   DPV <- ea.sat - ea
+  sun <- asceRa(DOY = DOY, hours = hours, lat = WS$lat, long = WS$long, long.z = long.z)
+  Rso <- (0.75+2e-5*WS$elev)*sun$Ra                           # Eq. 47
+  if(is.null(fcd)){
+    # Rs/Rso limited to 0.3-1 (Eq. 45); at night (Rso = 0) the minimum
+    ratio <- ifelse(Rso > 0, Rs/Rso, 0.3)
+    fcd <- 1.35*pmin(pmax(ratio, 0.3), 1) - 0.35
+  }
+  Rnl <- 2.042e-10*fcd*(0.34-0.14*sqrt(ea))*(temp + 273.16)^4  # Eq. 44
+  Rn <- (1-0.23)*Rs - Rnl                                     # Eqs. 42-43
+  # daytime when Rn > 0 (Table 1)
+  day <- Rn > 0
+  if(ET == "ETr"){
+    G <- Rn * ifelse(day, 0.04, 0.2); Cn <- 66; Cd <- ifelse(day, 0.25, 1.7)
+  } else {
+    G <- Rn * ifelse(day, 0.1, 0.5); Cn <- 37; Cd <- ifelse(day, 0.24, 0.96)
+  }
+  wind.2 <- WS$wind *(4.87/(log(67.8*WS$height-5.42)))         # Eq. 33
+  ET.hourly <- ((0.408*Delta*(Rn-G))+(psi*(Cn/(temp+273))*wind.2*(DPV)))/
+    (Delta+(psi*(1+(Cd*wind.2))))                             # Eq. 1
+  list(ET = ET.hourly, fcd = fcd, beta = sun$beta)
+}
+
+# Extraterrestrial radiation Ra (MJ m-2 h-1, ASCE-EWRI 2005 Eq. 48) for the
+# hour ending at hours (decimal hours of the station clock), and the sun
+# angle beta (radians, Eq. 62) at its middle; long.z is the longitude of the
+# centre of the time zone of the clock
+asceRa <- function(DOY, hours, lat, long, long.z){
   dr <- 1 + 0.033*(cos(2*pi*DOY/365))
   delta <- 0.409*sin((2*pi*DOY/365)-1.39)
-  phi <- WeatherStation$lat*(pi/180)
+  phi <- lat*(pi/180)
   b <- 2*pi*(DOY-81)/364
   Sc <- 0.1645*sin(2*b)-0.1255*cos(b)-0.025*sin(b)
-  if(ET.instantaneous==TRUE){hours <- hours +0.5}
-  hour.angle <- (pi/12)*((hours-0.5+0.06667*(WeatherStation$long*
-                                               pi/180-long.z*pi/180)+Sc)-12)
+  hour.angle <- (pi/12)*((hours-0.5+0.06667*(long-long.z)+Sc)-12)
   w1 <- hour.angle-((pi)/24)
   w2 <- hour.angle+((pi)/24)
   hour.angle.s <- acos(-tan(phi)*tan(delta))
-  w1c <- ifelse(w1< -hour.angle.s, -hour.angle.s, 
-                ifelse(w1>hour.angle.s, hour.angle.s, ifelse(w1>w2, w2, w1)))
-  w2c <- ifelse(w2< -hour.angle.s, -hour.angle.s, 
+  # integration limits within sunrise and sunset (Eqs. 56-58)
+  w1c <- ifelse(w1< -hour.angle.s, -hour.angle.s,
+                ifelse(w1>hour.angle.s, hour.angle.s, w1))
+  w2c <- ifelse(w2< -hour.angle.s, -hour.angle.s,
                 ifelse(w2>hour.angle.s, hour.angle.s, w2))
-  Beta <- asin((sin(phi)*sin(delta)+cos(phi)*cos(delta)*cos(hour.angle)))
-  Ra <- ifelse(Beta <= 0, 1e-45, ((12/pi)*4.92*dr)*
-                 (((w2c-w1c)*sin(phi)*sin(delta))+(cos(phi)*cos(delta)*
-                                                     (sin(w2)-sin(w1)))))
-  Rso <- (0.75+2e-5*WeatherStation$elev)*Ra
-  Rs.Rso <- ifelse(Rs/Rso<=0.3, 0, ifelse(Rs/Rso>=1, 1, Rs/Rso))
-  fcd <- ifelse(1.35*Rs.Rso-0.35<=0.05, 0.05, 
-                ifelse(1.35*Rs.Rso-0.35<1, 1.35*Rs.Rso-0.35,1))
-  Rn.a <- ((1-0.23)*Rs) - (2.042e-10*fcd*(0.34-0.14*(ea^0.5))*tempK^4)
-  Ghr <- c(0.1, 0.5)
-  if(ET=="ETr"){Ghr <- c(0.04, 0.2)}
-  G.day <- Rn.a * ifelse(Rn.a > 0, Ghr[1], Ghr[2])
-  wind.2 <- WeatherStation$wind *(4.87/(log(67.8*WeatherStation$height-5.42)))
-  windfactors <- c(0.24, 0.96)
-  if(ET=="ETr"){windfactors <-  c(0.25, 1.7)}
-  windf <- ifelse(WeatherStation$radiation > 0, windfactors[1], windfactors[2])
-  ET.hourly <- ((0.408*Delta*(Rn.a-G.day))+(psi*(37/tempK)*wind.2*(DPV)))/
-    (Delta+(psi*(1+(windf*wind.2))))
-  if(ET=="ETr"){
-    ET.hourly <- ((0.408*Delta*(Rn.a-G.day))+(psi*(66/tempK)*wind.2*(DPV)))/
-      (Delta+(psi*(1+(windf*wind.2))))
-  }
-  return(ET.hourly)
+  w1c <- pmin(w1c, w2c)
+  beta <- asin((sin(phi)*sin(delta)+cos(phi)*cos(delta)*cos(hour.angle)))
+  Ra <- ((12/pi)*4.92*dr)*(((w2c-w1c)*sin(phi)*sin(delta))+
+                             (cos(phi)*cos(delta)*(sin(w2c)-sin(w1c))))
+  list(Ra = pmax(Ra, 0), beta = beta)
 }
 
-#' Calculates daily ET from a surface energy balance and Weather Station 
-#' @param Rn             Net radiation. See netRadiation()
-#' @param G              Soil Heat Flux. See soilHeatFlux()
-#' @param H              Sensible Heat Flux. See calcH()
-#' @param Ts             Land surface temperature. See surfaceTemperature()
-#' @param WeatherStation WeatherStation data at the flyby from the satellite. 
-#' Can be a waterWeatherStation object calculate using read.WSdata and MTL file
-#' @param ETr.daily      hourly ETr for every hour of the day. See dailyET()
-#' @param C.rad          correction term used in sloping terrain to correct for 
-#' variation in 24 h versus instantaneous energy availability. See Allen (2007)
+# Clear-sky solar radiation Rso (MJ m-2 h-1, ASCE-EWRI 2005 Eq. 47) for the
+# hour ending at hours (decimal hours of the station clock)
+clearSkyRso <- function(DOY, hours, lat, long, long.z, elev){
+  (0.75+2e-5*elev)*asceRa(DOY = DOY, hours = hours, lat = lat, long = long,
+                          long.z = long.z)$Ra
+}
+
+#' Calculates daily ET from a surface energy balance and Weather Station
+#' @description
+#' Calculates the daily (24 h) actual evapotranspiration: the instantaneous ET
+#' (from LE = Rn - G - H) divided by the instantaneous alfalfa reference ET
+#' (ETr, see hourlyET()) at the satellite overpass gives the reference ET
+#' fraction (ETrF), which is multiplied by the daily reference ET. The simplest
+#' call is ET24h(EB), with EB from METRIC.EB().
+#' @param Rn             Net radiation (W/m2), see \code{\link{netRadiation}}; or
+#' the result of METRIC.EB(), which supplies Rn, G, H, Ts and the weather
+#' station. See Value
+#' @param G              Soil Heat Flux (W/m2). See \code{\link{soilHeatFlux}}
+#' @param H              Sensible Heat Flux (W/m2). See \code{\link{calcH}}
+#' @param Ts             Land surface temperature (K). See \code{\link{surfaceTemperature}}
+#' @param WeatherStation WeatherStation data at the satellite overpass.
+#' Can be a waterWeatherStation object calculated using read.WSdata and MTL file
+#' (with read.WSdata(..., overpass.radiation = "clear-sky"), the clear-sky
+#' radiation is used, as in calcH()). Optional with a METRIC.EB() result
+#' @param ETr.daily      daily reference ET (mm/day) for the day of the image,
+#' e.g. from dailyET() (whose default is the alfalfa reference, ETr). If
+#' missing, dailyET(WeatherStation) is used (the day of the overpass)
+#' @param C.rad          correction term used in sloping terrain to correct for
+#' variation in 24 h versus instantaneous energy availability (Allen et al.,
+#' 2007, Eq. 56): a number or a SpatRaster. With a METRIC.EB() result computed
+#' with a DEM (plain = FALSE) it is computed with \code{\link{Crad}}; 1
+#' otherwise
+#' @param plots          Logical. If TRUE (default: only in interactive sessions)
+#' ET24 is plotted
+#' @details
+#' ETrF is a crop coefficient on the alfalfa reference basis. To compare it
+#' with a crop coefficient on the grass reference basis (Kc, FAO-56), multiply
+#' it by the ratio of the daily alfalfa and grass reference ET,
+#' dailyET(WeatherStation) / dailyET(WeatherStation, ET = "ETo").
+#'
+#' LE = Rn - G - H is not limited, so ETinst and ETrF are negative where H >
+#' Rn - G (usually hot, dry pixels, or where the calibration does not fit);
+#' layer HgtRnG flags them. METRIC.EB() sets LE to 0 there.
+#' @return With Rn, G, H and Ts: a SpatRaster with daily (24 h) actual
+#' evapotranspiration (mm/day) in a layer named ET24; negative values are set
+#' to 0. With a METRIC.EB() result: a SpatRaster with layers ETinst
+#' (instantaneous ET at the overpass, mm/h), ETrF (reference ET fraction,
+#' unitless), ET24 (mm/day, negative values set to 0) and HgtRnG (1 where H >
+#' Rn - G, else 0), and C.rad for METRIC.EB() results computed with a DEM.
+#' @family ET functions
 #' @author Guillermo Federico Olmedo
 #' @references 
 #' R. G. Allen, M. Tasumi, and R. Trezza, "Satellite-based energy balance for mapping evapotranspiration with internalized calibration (METRIC) - Model" Journal of Irrigation and Drainage Engineering, vol. 133, p. 380, 2007
 #' @importFrom grDevices colorRampPalette
 #' @export
-ET24h <- function(Rn, G, H, Ts, WeatherStation, ETr.daily, C.rad=1){
-  if(class(WeatherStation)== "waterWeatherStation"){
+#' @examples
+#' # the usual way: ET24h() takes the result of METRIC.EB()
+#' # a small window of the Landsat 7 example scene, to run quickly
+#' MTL <- system.file("extdata", "L7.MTL.txt", package = "water")
+#' WeatherStation <- read.WSdata(WSdata = system.file("extdata", "apples.csv", package = "water"),
+#'   date.format = "%d/%m/%Y", lat = -35.42222, long = -71.38639, elev = 201, height = 2.2,
+#'   cf = c(1, 0.2777778, 1), tz = "America/Santiago", MTL = MTL)
+#' image.DN <- terra::rast(L7_Talca)[1:60, 1:80, drop = FALSE]
+#' Energy.Balance <- METRIC.EB(image.DN = image.DN, WeatherStation = WeatherStation, MTL = MTL,
+#'                             sat = "L7", thermalband = image.DN$Thermal1, plain = TRUE)
+#' ET <- ET24h(Energy.Balance)
+#' plot(ET$ET24)
+#'
+#' # step by step, with the layers computed one by one:
+#' # a small window of the Landsat 7 example scene, to run quickly
+#' MTL <- system.file("extdata", "L7.MTL.txt", package = "water")
+#' WeatherStation <- read.WSdata(WSdata = system.file("extdata", "apples.csv", package = "water"),
+#'   date.format = "%d/%m/%Y", lat = -35.42222, long = -71.38639, elev = 201, height = 2.2,
+#'   cf = c(1, 0.2777778, 1), tz = "America/Santiago", MTL = MTL)
+#' image.DN <- terra::rast(L7_Talca)[1:60, 1:80, drop = FALSE]
+#' DEM <- terra::rast(DEM_Talca)[1:60, 1:80, drop = FALSE]
+#' surface.model <- METRICtopo(DEM)
+#' solar.angles <- solarAngles(surface.model = surface.model,
+#'                             WeatherStation = WeatherStation, MTL = MTL)
+#' Rs.inc <- incSWradiation(surface.model = surface.model, solar.angles = solar.angles,
+#'                          WeatherStation = WeatherStation)
+#' image.TOAr <- calcTOAr(image.DN, sat = "L7", MTL = MTL,
+#'                        incidence.rel = solar.angles$incidence.rel)
+#' image.SR <- suppressWarnings(calcSR(image.TOAr, sat = "L7", surface.model = surface.model,
+#'                    incidence.hor = solar.angles$incidence.hor, WeatherStation = WeatherStation))
+#' albedo <- albedo(image.SR, coeff = "Tasumi", sat = "L7")
+#' LAI <- LAI(method = "metric2010", image = image.TOAr, L = 0.1)
+#' Ts <- suppressWarnings(surfaceTemperature(image.DN = image.DN, LAI = LAI, sat = "L7",
+#'                                           WeatherStation = WeatherStation))
+#' Rl.out <- outLWradiation(LAI = LAI, Ts = Ts)
+#' Rl.inc <- incLWradiation(WeatherStation, DEM = surface.model$DEM,
+#'                          solar.angles = solar.angles, Ts = Ts)
+#' Rn <- netRadiation(LAI, albedo, Rs.inc, Rl.inc, Rl.out)
+#' G <- soilHeatFlux(image = image.SR, Ts = Ts, albedo = albedo, Rn = Rn, LAI = LAI)
+#' Z.om <- momentumRoughnessLength(LAI = LAI, mountainous = TRUE, method = "short.crops",
+#'                                 surface.model = surface.model)
+#' anchors <- calcAnchors(image = image.TOAr, Ts = Ts, LAI = LAI, albedo = albedo, Z.om = Z.om,
+#'                       WeatherStation = WeatherStation, plots = FALSE, verbose = FALSE)
+#' H <- calcH(anchors = anchors, Ts = Ts, Z.om = Z.om, WeatherStation = WeatherStation,
+#'            DEM = DEM, Rn = Rn, G = G, plots = FALSE, verbose = FALSE)
+#' # the layers computed above
+#' ET24h(Rn, G, H$H, Ts, WeatherStation = WeatherStation,
+#'       ETr.daily = dailyET(WeatherStation, MTL = MTL))
+ET24h <- function(Rn, G, H, Ts, WeatherStation, ETr.daily, C.rad=1,
+                  plots = interactive()){
+  full <- inherits(Rn, "waterLSEB")  # a METRIC.EB() result
+  if(full){
+    EB <- Rn
+    if(missing(WeatherStation)){WeatherStation <- EB$WeatherStation}
+    Rn <- EB$EB$NetRadiation; G <- EB$EB$SoilHeat; H <- EB$EB$SensibleHeat
+    Ts <- EB$EB$surfaceTemperature
+    # mountain mode: slope correction of daily ET (Allen et al., 2007, Eq. 56)
+    if(!is.null(EB$terrain) && missing(C.rad)){
+      C.rad <- Crad(EB$terrain, EB$terrain, WeatherStation,
+                    Kt = as.numeric(EB$methods[["Kt"]]))
+    }
+  }
+  if(missing(ETr.daily)){
+    if(!inherits(WeatherStation, "waterWeatherStation")){
+      stop("ETr.daily is missing: pass it (e.g. from dailyET()) or a ",
+           "waterWeatherStation object as WeatherStation", call. = FALSE)
+    }
+    ETr.daily <- dailyET(WeatherStation)
+  }
+  if(inherits(WeatherStation, "waterWeatherStation")){
     WeatherStation <- getDataWS(WeatherStation)
   }
   LE = Rn - G - H
   ET.inst <- 3600*LE/((2.501 - 0.00236 * (Ts - 273.15)) * (1e6))
-  ETo.hourly <- hourlyET(WeatherStation, WeatherStation$hours, WeatherStation$DOY)
-  ETr.Fr <- ET.inst/ETo.hourly
+  ETr.hourly <- hourlyET(WeatherStation, WeatherStation$hours, WeatherStation$DOY,
+                         ET.instantaneous = TRUE, ET = "ETr")
+  ETr.Fr <- ET.inst/ETr.hourly
   ET.24 <- ETr.Fr * ETr.daily * C.rad
   ET.24[ET.24 < 0]  <- 0
   #ET.24[ET.24 > quantile(ET.24, 0.9)] <- quantile(ET.24, 0.9)
-  rgb.palette <- grDevices::colorRampPalette(c("red3","snow2","blue"),  space = "rgb")
-  print(spplot(ET.24, scales=list(draw=TRUE), xlab="Easting", ylab="Northing", col.regions=rgb.palette, main= "24-Hour Evapotranspiration (mm/day)",
-               colorkey=list(height=1), at=seq(0,ceiling(ETr.daily*1.5),length.out=50), maxpixels=ncell(ET.24) * 0.3))
-  saveLoadClean(imagestack = ET.24, 
-                file = "ET24", overwrite=TRUE)
+  if(plots){
+    rgb.palette <- grDevices::colorRampPalette(c("red3","snow2","blue"),  space = "rgb")
+    plot(ET.24, col = rgb.palette(50), range = c(0, ceiling(ETr.daily*1.5)),
+         fill_range = TRUE, xlab = "Easting", ylab = "Northing",
+         main = "24-Hour Evapotranspiration (mm/day)")
+  }
+  if(!full){
+    return(saveLoadClean(imagestack = ET.24, file = "ET24", overwrite=TRUE))
+  }
+  result <- c(ET.inst, ETr.Fr, ET.24, H > Rn - G)
+  layers <- c("ETinst", "ETrF", "ET24", "HgtRnG")
+  if(inherits(C.rad, "SpatRaster")){
+    result <- c(result, C.rad)
+    layers <- c(layers, "C.rad")
+  }
+  saveLoadClean(imagestack = result, stack.names = layers, file = "ET24", overwrite = TRUE)
 }
 
 
-#' Calculates daily ET using Penman Monteith hourly formula for every hour
-#' @param WeatherStation a data frame with all the needed fields (see example)
-#' @param DOY      day of year
-#' @param height   weather station sensors height in meters
-#' @param lat      latitude in decimal degrees of the weather station
-#' @param long     longitude in decimal degrees of the weather station
-#' @param elev     elevation in meters of the weather station
+#' Calculates daily reference ET as the sum of hourly Penman-Monteith values
+#' @description
+#' Sums the hourly reference ET (ASCE standardized Penman-Monteith equation,
+#' see \code{\link{hourlyET}}) of the hourly weather station values of one day,
+#' in the time zone of the station records: the day of the satellite overpass
+#' or another day.
+#' @param WeatherStation waterWeatherStation object, see \code{\link{read.WSdata}}.
+#' Required (other inputs stop)
+#' @param DOY      Not used
+#' @param height   weather station sensors height in meters. If missing, taken
+#' from WeatherStation
+#' @param lat      latitude in decimal degrees of the weather station. If
+#' missing, taken from WeatherStation
+#' @param long     longitude in decimal degrees of the weather station. If
+#' missing, taken from WeatherStation
+#' @param elev     elevation in meters of the weather station. If missing,
+#' taken from WeatherStation
 #' @param ET       "ETo" for short crops, similar to clipped, cool-season
-#' grass; or "ETr" for tall crops, similar to 0.5 m tall full-cover alfalfa.
-#' @param long.z   longitude for local time
-#' @param MTL      Metadata file. If not provided will look for one on
-#' working directory. If provided or present will calculate weather conditions
-#' on satellite overpass.
-#' @param date     if date == "auto" will use a MTL file provided or present in 
-#' the working folder to select the date.
-#' @return ET      daily in mm.h-1
+#' grass; or "ETr" (default) for tall crops, similar to 0.5 m tall full-cover
+#' alfalfa.
+#' @param long.z   longitude of the centre of the time zone of the weather
+#' station clock (decimal degrees, negative west). By default it is computed
+#' from the time zone of the records; see \code{\link{hourlyET}}
+#' @param MTL      path to the Landsat metadata (*_MTL.txt) file. Optional:
+#' the day of the overpass in the time zone of the station selects the day
+#' (see date)
+#' @param date     "auto" (default) uses the acquisition date in the MTL file
+#' or, without MTL, the date of the conditions at the overpass of
+#' WeatherStation (at.sat); otherwise a date (e.g. "2016-02-09") present in the
+#' weather station data, taken in the time zone of the station records.
+#' Without MTL, date or at.sat, dailyET() stops
+#' @details
+#' As in ASCE-EWRI (2005), the day is the 24 hourly periods ending at 01:00 to
+#' 24:00 (00:00 of the next day); 23 or 25 periods on days when daylight saving
+#' time starts or ends. The cloudiness function of the net long-wave radiation
+#' is computed while the sun is higher than 0.3 rad, and its last value is
+#' carried over dusk, night and dawn (Eq. 46); before the first sunny period
+#' the previous evening is used, or the last sunny period of the day if the
+#' records do not include the previous day.
+#' @return Numeric. Daily reference ET (mm/day): the sum of the hourly values
+#' of the day. If the records do not cover the whole day, NA with a warning
+#' (only the last period, ending at 24:00, may be missing: it is then left
+#' out, with a message).
+#' @family ET functions
 #' @author Guillermo Federico Olmedo
 #' @export
-#' @references 
-#' Allen 2005 ASCE
-#' @examples 
+#' @references
+#' ASCE-EWRI (2005). The ASCE Standardized Reference Evapotranspiration
+#' Equation. Report of the ASCE-EWRI Task Committee on Standardization of
+#' Reference Evapotranspiration.
+#' @examples
 #' csvfile <- system.file("extdata", "apples.csv", package="water")
-#' 
-#' WeatherStation <- read.WSdata(WSdata = csvfile, date.format = "%d/%m/%Y", 
-#' lat=-35.42222, long= -71.38639, elev=201, height= 2.2, cf=c(1,0.2777778,1,1))
-#' 
-#' dailyET(WeatherStation = WeatherStation, lat=-35.422, long=-71.386, elev=124, 
-#' ET="ETo")
+#'
+#' WeatherStation <- read.WSdata(WSdata = csvfile, date.format = "%d/%m/%Y",
+#' lat=-35.42222, long= -71.38639, elev=201, height= 2.2, cf=c(1,0.2777778,1),
+#' tz = "America/Santiago")
+#'
+#' dailyET(WeatherStation = WeatherStation, ET="ETo", date = "2013-02-15")
 #' 
 dailyET <- function(WeatherStation, DOY, height, lat, long, elev, ET="ETr", 
-                    long.z=WeatherStation$long, date = "auto", MTL){
-  if(class(WeatherStation)== "waterWeatherStation"){
+                    long.z=NULL, date = "auto", MTL){
+  checkChoice(ET, c("ETr", "ETo"), "ET")
+  if(inherits(WeatherStation, "waterWeatherStation")){
     if(missing(height)){height <- WeatherStation$location$height}
     if(missing(lat)){lat <- WeatherStation$location$lat}
     if(missing(long)){long <- WeatherStation$location$long}
     if(missing(elev)){elev <- WeatherStation$location$elev}
     
-    ## Join with satellite data
-    if(missing(MTL)){MTL <- list.files(pattern = "MTL.txt", full.names = T)}
-    if(length(MTL)!=0){  ## TODO: Check if MTL date is inside WS data
-      MTL <- readLines(MTL, warn=FALSE)
-      date.line <- grep("DATE_ACQUIRED",MTL,value=TRUE)
-      sat.date <-regmatches(date.line,regexec(text=date.line,
-                                              pattern="([0-9]{4})(-)([0-9]{2})(-)([0-9]{2})"))[[1]][1]
-      sat.date <- strptime(sat.date,  
-                           format = "%Y-%m-%d", tz="GMT")
-      if(date == "auto"){
-        data <- WeatherStation$hourly[as.character(trunc(WeatherStation$hourly$datetime, "days")) == 
-                                        as.character(as.Date(sat.date)),]
-      }  else {
-        data <- WeatherStation$hourly[as.Date(WeatherStation$hourly$datetime) == as.Date(date),]
+    ## Day of the image: date, the acquisition date in the MTL file or the
+    ## date of the conditions at the overpass (at.sat)
+    MTL <- findMTL(if(!missing(MTL)) MTL, required = FALSE)
+    hourly <- WeatherStation$hourly
+    if(!identical(date, "auto")){
+      day <- as.character(as.Date(date))  # a Date or a character date
+    } else {
+      if(!is.null(MTL)){
+        # local day of the overpass: DATE_ACQUIRED and SCENE_CENTER_TIME are
+        # UTC (east of about UTC+10 the local day is the next one)
+        MTL <- readLines(MTL, warn=FALSE)
+        sat.datetime <- mtlDateTime(MTL)
+        day <- format(sat.datetime, "%Y-%m-%d",
+                      tz = attr(as.POSIXlt(hourly$datetime[1]), "tzone")[1])
+      } else if(!is.null(WeatherStation$at.sat)){
+        day <- format(WeatherStation$at.sat$datetime, "%Y-%m-%d")
+      } else {
+        stop("dailyET() needs the day of the image: pass MTL or date (e.g. ",
+             "date = \"2016-02-09\"), or read the weather station with MTL",
+             call. = FALSE)
       }
-      ET.daily <- vector()
-      for(i in 1:24){
-          ET.daily <- c(ET.daily, hourlyET(data[i,], lat=lat, 
-                                           long = long, elev=elev, ET=ET, 
-                                           height = height))
-        }
     }
-    if(length(MTL)==0){
-      ET.daily <- vector()
-      for(i in 1:24){
-        date <- as.POSIXlt(WeatherStation$hourly[i,1], format="%Y-%m-%d %H:%M:%S")
-        ET.daily <- c(ET.daily, hourlyET(WeatherStation$hourly[i,], lat=lat, 
-                                         long = long, elev=elev, ET=ET, 
-                                         height = height))
+    # the day in the time zone of the station records: the hourly periods
+    # ending at 01:00 to 24:00 (ASCE-EWRI 2005); 23 or 25 with daylight saving
+    tz <- attr(as.POSIXlt(hourly$datetime[1]), "tzone")[1]
+    if(is.null(tz)){tz <- ""}
+    start <- as.POSIXct(paste(day, "00:00:00"), tz = tz)
+    end <- as.POSIXct(paste(as.Date(day) + 1, "00:00:00"), tz = tz)
+    expected <- round(as.numeric(difftime(end, start, units = "hours")))
+    t <- hourly$datetime
+    target <- t > start & t <= end
+    if(!any(target)){
+      stop("No weather station records on ", day, call. = FALSE)
+    }
+    # with the previous day, if available, for the cloudiness at night
+    rows <- t > start - 86400 & t <= end
+    d <- hourly[rows, ]
+    d$lat <- lat; d$long <- long; d$elev <- elev; d$height <- height
+    lt <- as.POSIXlt(d$datetime)
+    hours <- lt$hour + lt$min/60 + lt$sec/3600
+    DOY <- lt$yday + 1
+    lz <- if(is.null(long.z)) tzLongitude(d$datetime) else long.z
+    first <- asceHourly(d, hours = hours, DOY = DOY, long.z = lz, ET = ET)
+    # cloudiness function: from Rs/Rso while the sun is higher than 0.3 rad,
+    # then carried over dusk, night and dawn (Eq. 46). Before the first such
+    # period, the previous evening or else the last one of the day
+    tgt <- target[rows]
+    sunny <- first$beta > 0.3
+    fcd <- first$fcd
+    current <- if(any(sunny & tgt)) utils::tail(fcd[sunny & tgt], 1) else fcd[1]
+    for(i in seq_along(fcd)){
+      if(sunny[i]){current <- fcd[i]} else {fcd[i] <- current}
+    }
+    ET.hourly <- asceHourly(d, hours = hours, DOY = DOY, long.z = lz, ET = ET,
+                            fcd = fcd)$ET[tgt]
+    n <- sum(tgt)
+    if(n < expected){
+      if(n == expected - 1 && !any(t == end)){
+        message("The record of 24:00 on ", day, " (00:00 of the next day) is ",
+                "missing: the last hour (at night) is not included")
+      } else {
+        warning("Only ", n, " of ", expected, " hours on ", day, ": daily ", ET,
+                " is NA. Provide the whole day, or the daily reference ET from ",
+                "another source", call. = FALSE)
+        return(NA_real_)
       }
-  }} else {
-    print("not implemented yet")}
-  return(sum(ET.daily))
+    }
+  } else {
+    stop("WeatherStation must be a waterWeatherStation object (see read.WSdata())",
+         call. = FALSE)
+  }
+  return(sum(ET.hourly))
 }

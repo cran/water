@@ -4,72 +4,176 @@
 \alias{calcH}
 \title{Iterative function to estimate H and R.ah}
 \usage{
-calcH(anchors, method = "mean", Ts, Z.om, WeatherStation, ETp.coef = 1.05,
-  Z.om.ws = 0.03, mountainous = FALSE, DEM, Rn, G, verbose = FALSE,
-  maxit = 20)
+calcH(
+  anchors,
+  Ts,
+  Z.om,
+  WeatherStation,
+  ETp.coef = 1.05,
+  Z.om.ws = 0.015,
+  mountainous = FALSE,
+  DEM,
+  Rn,
+  G,
+  verbose = FALSE,
+  maxit = 20,
+  u200.min = 2,
+  damping = 0,
+  ETrF.hot = 0,
+  lapse = 6.49,
+  plots = interactive(),
+  method = "mean"
+)
 }
 \arguments{
-\item{anchors}{anchors points. Can be the result from calcAnchors() or
-a spatialPointDataframe o Dataframe with X, Y, and type. type should be 
-"cold" or "hot"}
+\item{anchors}{anchor pixels: the data.frame returned by calcAnchors(),
+another data.frame with X, Y (coordinates in the CRS of Ts) and type
+columns, or an sf POINT object with a type column (transformed to the CRS
+of Ts). type must be "hot" or "cold" (case is ignored). The anchors are
+checked before iterating: they must be inside the image, Ts, Rn, G, Z.om
+and DEM must not be NA there, and the hot anchors must be at least 5 K
+warmer than the cold ones (Ts corrected to the datum elevation; for
+method = "lm", in every pair). A smaller difference means that the area
+lacks the wet and dry extremes that METRIC needs}
 
-\item{method}{Method when using more than 1 pair of anchor pixels. 
-method = "mean" will use the mean value for the cold pixels vs the mean value
-for the hot pixels.}
+\item{Ts}{Land surface temperature in K. See \code{\link{surfaceTemperature}}.
+Must be in Kelvin: values that look like Celsius, or more than 1\% of the
+cells below 200 K (unmasked fill or clouds), stop; fewer cells below 200 K
+give a warning.}
 
-\item{Ts}{Land surface temperature in K. See surfaceTemperature()}
+\item{Z.om}{momentum roughness length, from momentumRoughnessLength()
+(which keeps it at least 0.005 m; calcH() uses it as given)}
 
-\item{Z.om}{momentum roughness lenght. See momentumRoughnessLength()}
+\item{WeatherStation}{WeatherStation data at the satellite overpass.
+Can be a waterWeatherStation object calculated using read.WSdata and MTL file
+(with read.WSdata(..., overpass.radiation = "clear-sky"), the clear-sky
+radiation is used)}
 
-\item{WeatherStation}{WeatherStation data at the satellite overpass. 
-Can be a waterWeatherStation object calculated using read.WSdata and MTL file}
+\item{ETp.coef}{ratio of the ET of the cold pixels to the instantaneous
+alfalfa reference ET (ETr) at the satellite overpass (see Details). Allen et al.
+(2007) use 1.05, the default}
 
-\item{ETp.coef}{ETp coefficient usually 1.05 or 1.2 for alfalfa}
+\item{Z.om.ws}{momentum roughness length (m) of the weather station
+surface, used to extrapolate the wind speed to 200 m (Allen et al., 2007,
+Eq. 32). It is about 0.123 times the height of the vegetation around the
+station (Allen et al., 1998): 0.015 m (the default) for a standard station
+over clipped grass 0.12 m tall, 0.03 m for vegetation about 0.25 m tall}
 
-\item{Z.om.ws}{momentum roughness lenght for WeatherStation. Usually
-a value of 0.03 might be reasonable for a typical agricultural weather station 
-sited over vegetation that is about 0.3 m tall.  For clipped grass, use 0.015 m}
-
-\item{mountainous}{Logical. If TRUE heat transfer equation will be 
+\item{mountainous}{Logical. If TRUE heat transfer equation will be
 adjusted for mountainous terrain}
 
 \item{DEM}{Digital Elevation Model in meters.}
 
-\item{Rn}{Net radiation. See netRadiation()}
+\item{Rn}{Net radiation. See \code{\link{netRadiation}}}
 
-\item{G}{Soil Heat Flux. See soilHeatFlux()}
+\item{G}{Soil Heat Flux. See \code{\link{soilHeatFlux}}}
 
-\item{verbose}{Logical. If TRUE will print information about every 
-iteration to console}
+\item{verbose}{Logical. If TRUE, information about every iteration is
+shown (as messages)}
 
-\item{maxit}{Maximun number of iteration. Default 20.}
+\item{maxit}{Maximum number of iterations. Default 20.}
+
+\item{u200.min}{minimum wind speed at 200 m (m/s, default 2). See
+\code{\link{calcH.control}}}
+
+\item{damping}{weight of the previous aerodynamic resistance in each
+iteration (default 0, no damping). See \code{\link{calcH.control}}}
+
+\item{ETrF.hot}{reference ET fraction of the hot anchors (default 0).
+See \code{\link{calcH.control}}}
+
+\item{lapse}{lapse rate (K/km) used to refer Ts to the elevation of
+the weather station (default 6.49). See \code{\link{calcH.control}}}
+
+\item{plots}{Logical. If TRUE (default: only in interactive sessions)
+the aerodynamic resistance of the anchors is plotted at each iteration}
+
+\item{method}{Method when using more than 1 pair of anchor pixels:
+"mean" (default) uses the mean values of the cold pixels and of the hot
+pixels; "lm" iterates each hot/cold pair in turn (maxit applies to each
+pair) and returns a and b of the last pair}
+}
+\value{
+A list with a and b (coefficients of dT = a * Ts_datum + b), dT
+(SpatRaster, near-surface temperature difference, K), H (SpatRaster,
+sensible heat flux, W/m2), converged (logical), iterations (number of
+iterations; one per pair for method = "lm") and u200 (wind speed at 200 m
+used, m/s). The aerodynamic resistance of the anchor pixels at each
+iteration is plotted with plots = TRUE. The iteration stops with an error when
+it diverges.
 }
 \description{
-generates an iterative solution to estimate r.ah and H because both are unknown at each pixel.
+Generates an iterative solution to estimate r.ah and H because both are unknown at each pixel.
 }
 \details{
-Sensible heat flux is the rate of heat loss to the air by convection 
-and conduction, due to a temperature difference.This parameter is computed using the following one-dimensional,
-aerodynamic,temperature gradient based equation for heat transport, this method is difficult to solve because 
-there are two unknowns, rah and dT. To facilitate this computation, METRIC utilize the two "anchor" 
-pixels  and solve for dT that satisfies eq. given the aerodynamic roughness and wind speed at a given height.
-Aerodynamic resistance, and heat transfer is impacted by buoyancy of heated, light air at the surface, 
-especially when H is large. Therefore, correction to rah is needed to account for buoyancy effects. However, 
-H is needed to make this correction. An iterative solution for both H and rah is used.
+Sensible heat flux is the rate of heat loss to the air by convection
+and conduction, due to a temperature difference. This parameter is computed
+using a one-dimensional, aerodynamic, temperature-gradient-based equation for
+heat transport. This method is difficult to solve because there are two
+unknowns, rah and dT. To facilitate this computation, METRIC utilizes the two
+"anchor" pixels and solves for the dT that satisfies the equation given the
+aerodynamic roughness and wind speed at a given height. Aerodynamic
+resistance and heat transfer are impacted by buoyancy of heated, light air at
+the surface, especially when H is large. Therefore, correction to rah is
+needed to account for buoyancy effects. However, H is needed to make this
+correction. An iterative solution for both H and rah is used.
+
+The ET of the cold pixels is computed as ETp.coef times the instantaneous alfalfa
+reference ET (ETr, ASCE standardized equation; see \code{\link{hourlyET}}) at the
+satellite overpass, as in Allen et al. (2007). ET24h() and dailyET() use the
+same reference.
+}
+\examples{
+# a small window of the Landsat 7 example scene, to run quickly
+MTL <- system.file("extdata", "L7.MTL.txt", package = "water")
+WeatherStation <- read.WSdata(WSdata = system.file("extdata", "apples.csv", package = "water"),
+  date.format = "\%d/\%m/\%Y", lat = -35.42222, long = -71.38639, elev = 201, height = 2.2,
+  cf = c(1, 0.2777778, 1), tz = "America/Santiago", MTL = MTL)
+image.DN <- terra::rast(L7_Talca)[1:60, 1:80, drop = FALSE]
+DEM <- terra::rast(DEM_Talca)[1:60, 1:80, drop = FALSE]
+surface.model <- METRICtopo(DEM)
+solar.angles <- solarAngles(surface.model = surface.model,
+                            WeatherStation = WeatherStation, MTL = MTL)
+Rs.inc <- incSWradiation(surface.model = surface.model, solar.angles = solar.angles,
+                         WeatherStation = WeatherStation)
+image.TOAr <- calcTOAr(image.DN, sat = "L7", MTL = MTL,
+                       incidence.rel = solar.angles$incidence.rel)
+image.SR <- suppressWarnings(calcSR(image.TOAr, sat = "L7", surface.model = surface.model,
+                   incidence.hor = solar.angles$incidence.hor, WeatherStation = WeatherStation))
+albedo <- albedo(image.SR, coeff = "Tasumi", sat = "L7")
+LAI <- LAI(method = "metric2010", image = image.TOAr, L = 0.1)
+Ts <- suppressWarnings(surfaceTemperature(image.DN = image.DN, LAI = LAI, sat = "L7",
+                                          WeatherStation = WeatherStation))
+Rl.out <- outLWradiation(LAI = LAI, Ts = Ts)
+Rl.inc <- incLWradiation(WeatherStation, DEM = surface.model$DEM,
+                         solar.angles = solar.angles, Ts = Ts)
+Rn <- netRadiation(LAI, albedo, Rs.inc, Rl.inc, Rl.out)
+G <- soilHeatFlux(image = image.SR, Ts = Ts, albedo = albedo, Rn = Rn, LAI = LAI)
+Z.om <- momentumRoughnessLength(LAI = LAI, mountainous = TRUE, method = "short.crops",
+                                surface.model = surface.model)
+anchors <- calcAnchors(image = image.TOAr, Ts = Ts, LAI = LAI, albedo = albedo, Z.om = Z.om,
+                      WeatherStation = WeatherStation, plots = FALSE, verbose = FALSE)
+H <- calcH(anchors = anchors, Ts = Ts, Z.om = Z.om, WeatherStation = WeatherStation,
+           DEM = DEM, Rn = Rn, G = G, plots = FALSE, verbose = FALSE)
+plot(H$H)
 }
 \references{
-R. G. Allen, M. Tasumi, and R. Trezza, "Satellite-based energy balance for mapping evapotranspiration with internalized calibration (METRIC) - Model" Journal of Irrigation and Drainage Engineering, vol. 133, p. 380, 2007 \cr
+R. G. Allen, M. Tasumi, and R. Trezza, "Satellite-based energy balance for mapping evapotranspiration with internalized calibration (METRIC) - Model" Journal of Irrigation and Drainage Engineering, vol. 133, p. 380, 2007
+
+Allen, R. G., Pereira, L. S., Raes, D., & Smith, M. (1998). Crop evapotranspiration: guidelines for computing crop water requirements. FAO Irrigation and Drainage Paper 56. FAO, Rome.
 
 Allen, R., Irmak, A., Trezza, R., Hendrickx, J.M.H., Bastiaanssen, W., Kjaersgaard, J., 2011. Satellite-based ET estimation in agriculture using SEBAL and METRIC. Hydrol. Process. 25, 4011-4027. doi:10.1002/hyp.8408 \cr
 }
 \seealso{
-Other sensible heat flux functions: \code{\link{calcAnchors}},
-  \code{\link{momentumRoughnessLength}}
+Other sensible heat flux functions:
+\code{\link[=calcAnchors]{calcAnchors()}},
+\code{\link[=momentumRoughnessLength]{momentumRoughnessLength()}}
 }
 \author{
 Guillermo Federico Olmedo
 
-de la Fuente-Saiz, Daniel
+Daniel de la Fuente-Sáiz
 
-Fernando Fuentes Peñailillo
+Fernando Fuentes-Peñailillo
 }
+\concept{sensible heat flux functions}

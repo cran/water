@@ -2,26 +2,45 @@
 % Please edit documentation in R/water_ET.R
 \name{hourlyET}
 \alias{hourlyET}
-\title{Calculates ET using Penman Monteith hourly formula}
+\title{Calculates hourly reference ET with the ASCE Penman-Monteith equation}
 \usage{
-hourlyET(WeatherStation, hours, DOY, long.z = WeatherStation$long,
-  ET.instantaneous = FALSE, ET = "ETr", height = 2, lat, long, elev)
+hourlyET(
+  WeatherStation,
+  hours,
+  DOY,
+  long.z = NULL,
+  ET.instantaneous = FALSE,
+  ET = "ETr",
+  height = 2,
+  lat,
+  long,
+  elev
+)
 }
 \arguments{
-\item{WeatherStation}{a data frame with all the needed fields (see 
-example)}
+\item{WeatherStation}{data.frame with the needed fields (see example),
+or a waterWeatherStation object with the conditions at the satellite
+overpass; in that case they are used and ET.instantaneous is set to TRUE}
 
-\item{hours}{time of the day in hours in 24hs format}
+\item{hours}{time of the day in decimal hours (24 h clock),
+e.g. 10.5 for 10:30}
 
 \item{DOY}{day of year}
 
-\item{long.z}{longitude for local time}
+\item{long.z}{longitude of the centre of the time zone of the
+weather station clock, in decimal degrees (negative west), for the solar
+time correction. By default it is computed from the UTC offset of the
+station records (15 degrees per hour, e.g. -45 for UTC-3, including daylight
+saving time): from WeatherStation$long.z (see \code{\link{getDataWS}}) or from the time
+zone of WeatherStation$datetime. If the time zone is unknown, the station
+longitude is used (no correction)}
 
-\item{ET.instantaneous}{Logical. True if you want to calculate 
-instantaneous ET instead of hourly ET. See Details.}
+\item{ET.instantaneous}{Logical. TRUE to calculate instantaneous ET
+instead of hourly ET. See Details.}
 
 \item{ET}{"ETo" for short crops, similar to clipped, cool-season
-grass; or "ETr" for tall crops, similar to 0.5 m tall full-cover alfalfa.}
+grass; or "ETr" (default) for tall crops, similar to 0.5 m tall full-cover
+alfalfa.}
 
 \item{height}{weather station sensors height in meters}
 
@@ -34,15 +53,27 @@ Negative values for west longitude}
 \item{elev}{elevation of weather station in meters}
 }
 \value{
-ET hourly in mm.h-1
+Numeric. Hourly (or, with ET.instantaneous = TRUE, instantaneous)
+reference ET (mm/h).
 }
 \description{
-Calculates ET using Penman Monteith hourly formula
+Calculates the hourly (or instantaneous) reference evapotranspiration with
+the ASCE standardized Penman-Monteith equation, for a short (ETo, grass) or a
+tall (ETr, alfalfa) reference crop.
 }
 \details{
-The only difference on instantaneous ET is how the hour is interpreted. On 
-FALSE, and for example at 11:00, ET is calculated between 10:00 and 11:00, 
-on TRUE Et is calculated at 11:00 hs.
+The only difference on instantaneous ET is how the hour is interpreted. With
+FALSE, and for example at 11:00, ET is calculated between 10:00 and 11:00;
+with TRUE, ET is calculated at 11:00.
+
+The equations follow ASCE-EWRI (2005): Rs/Rso is limited to 0.3-1 (Eq.
+45), the extraterrestrial radiation is integrated between sunrise and
+sunset (Eqs. 48 and 56-58), the daytime and nighttime coefficients Cd and G
+are chosen by Rn > 0 (Table 1), and T + 273 is used in the aerodynamic term
+and T + 273.16 in the net long-wave radiation. For a single period at night
+(sun angle below 0.3 rad) the cloudiness function cannot be computed and
+Rs/Rso = 0.3 is used; dailyET() carries the value of the last sunny period
+over the night instead (Eq. 46).
 }
 \examples{
 WeatherStation  <- data.frame(wind=4.72,
@@ -51,13 +82,24 @@ WeatherStation  <- data.frame(wind=4.72,
                               radiation=675, 
                               height=2.2, 
                               lat=-35.37, 
-                              long=71.5946, 
+                              long=-71.5946,
                               elev=124)
-  hourlyET(WeatherStation, hours=10.5, DOY=363, long.z=71.635)
+  hourlyET(WeatherStation, hours=10.5, DOY=363, long.z=-71.635)
 }
 \references{
-Allen 2005 ASCE
+ASCE-EWRI (2005). The ASCE Standardized Reference Evapotranspiration
+Equation. Report of the ASCE-EWRI Task Committee on Standardization of
+Reference Evapotranspiration.
+}
+\seealso{
+Other ET functions:
+\code{\link[=Crad]{Crad()}},
+\code{\link[=ET24h]{ET24h()}},
+\code{\link[=ETperiod]{ETperiod()}},
+\code{\link[=dailyET]{dailyET()}},
+\code{\link[=dailyETseries]{dailyETseries()}}
 }
 \author{
 Guillermo Federico Olmedo
 }
+\concept{ET functions}

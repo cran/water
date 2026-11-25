@@ -2,24 +2,49 @@
 % Please edit documentation in R/water_RSfunctions.R
 \name{loadImageSR}
 \alias{loadImageSR}
-\title{Load Landsat 8 surface reflectance data from folder}
+\title{Load Landsat 8/9 surface reflectance (and surface temperature) from a folder}
 \usage{
 loadImageSR(path = getwd(), aoi)
 }
 \arguments{
 \item{path}{folder where band files are stored}
 
-\item{aoi}{area of interest to crop images, if waterOptions("autoAoi") == 
-TRUE will look for any object called aoi on .GlobalEnv}
+\item{aoi}{Optional area of interest (e.g. from createAoi()) to crop the
+image. If missing, the image is not cropped}
+}
+\value{
+SpatRaster with surface reflectance (unitless) in layers B, G, R,
+NIR, SWIR1 and SWIR2 (Landsat 8/9 bands 2 to 7). If \code{*_ST_B10.TIF} is
+present, a seventh layer Band_10 with surface temperature (K) is added.
 }
 \description{
-This function loads Landsat bands from a specific folder.
+Loads Landsat 8 or 9 Collection 2 Level-2 surface reflectance bands 2 to 7
+(\code{*_SR_B2.TIF} to \code{*_SR_B7.TIF}) from a folder, scaled as
+DN * 0.0000275 - 0.2. Pixels where any band is fill (0) or outside the
+valid range of the product (7273 to 43636 DN, reflectance 0 to 1) are set
+to NA in all layers, with a message giving the number of out-of-range
+pixels: slightly negative blue reflectance over dense crops is masked too.
+All six bands are required.
+If \code{*_ST_B10.TIF} is present it is added as the last layer, "Band_10",
+in Kelvin (DN * 0.00341802 + 149, fill value 0 set to NA).
+It can be passed as surf.temp to METRIC.EB(), METRIC.Rn() or METRIC.G().
+Landsat 7 Level-2 products are not supported (different band numbers).
+}
+\examples{
+scene_folder <- system.file("extdata", "L8_C2", package = "water")
+image.SR <- loadImageSR(path = scene_folder)
+names(image.SR)
+plot(image.SR[["NIR"]])
 }
 \seealso{
-Other remote sensing support functions: \code{\link{calcRadiance}},
-  \code{\link{calcSR}}, \code{\link{calcTOAr}},
-  \code{\link{cfmask}}, \code{\link{loadImage}}
+Other remote sensing support functions:
+\code{\link[=calcRadiance]{calcRadiance()}},
+\code{\link[=calcSR]{calcSR()}},
+\code{\link[=calcTOAr]{calcTOAr()}},
+\code{\link[=cfmask]{cfmask()}},
+\code{\link[=loadImage]{loadImage()}}
 }
 \author{
 Guillermo Federico Olmedo
 }
+\concept{remote sensing support functions}

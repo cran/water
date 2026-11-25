@@ -4,31 +4,132 @@
 \alias{ET24h}
 \title{Calculates daily ET from a surface energy balance and Weather Station}
 \usage{
-ET24h(Rn, G, H, Ts, WeatherStation, ETr.daily, C.rad = 1)
+ET24h(
+  Rn,
+  G,
+  H,
+  Ts,
+  WeatherStation,
+  ETr.daily,
+  C.rad = 1,
+  plots = interactive()
+)
 }
 \arguments{
-\item{Rn}{Net radiation. See netRadiation()}
+\item{Rn}{Net radiation (W/m2), see \code{\link{netRadiation}}; or
+the result of METRIC.EB(), which supplies Rn, G, H, Ts and the weather
+station. See Value}
 
-\item{G}{Soil Heat Flux. See soilHeatFlux()}
+\item{G}{Soil Heat Flux (W/m2). See \code{\link{soilHeatFlux}}}
 
-\item{H}{Sensible Heat Flux. See calcH()}
+\item{H}{Sensible Heat Flux (W/m2). See \code{\link{calcH}}}
 
-\item{Ts}{Land surface temperature. See surfaceTemperature()}
+\item{Ts}{Land surface temperature (K). See \code{\link{surfaceTemperature}}}
 
-\item{WeatherStation}{WeatherStation data at the flyby from the satellite. 
-Can be a waterWeatherStation object calculate using read.WSdata and MTL file}
+\item{WeatherStation}{WeatherStation data at the satellite overpass.
+Can be a waterWeatherStation object calculated using read.WSdata and MTL file
+(with read.WSdata(..., overpass.radiation = "clear-sky"), the clear-sky
+radiation is used, as in calcH()). Optional with a METRIC.EB() result}
 
-\item{ETr.daily}{hourly ETr for every hour of the day. See dailyET()}
+\item{ETr.daily}{daily reference ET (mm/day) for the day of the image,
+e.g. from dailyET() (whose default is the alfalfa reference, ETr). If
+missing, dailyET(WeatherStation) is used (the day of the overpass)}
 
-\item{C.rad}{correction term used in sloping terrain to correct for 
-variation in 24 h versus instantaneous energy availability. See Allen (2007)}
+\item{C.rad}{correction term used in sloping terrain to correct for
+variation in 24 h versus instantaneous energy availability (Allen et al.,
+2007, Eq. 56): a number or a SpatRaster. With a METRIC.EB() result computed
+with a DEM (plain = FALSE) it is computed with \code{\link{Crad}}; 1
+otherwise}
+
+\item{plots}{Logical. If TRUE (default: only in interactive sessions)
+ET24 is plotted}
+}
+\value{
+With Rn, G, H and Ts: a SpatRaster with daily (24 h) actual
+evapotranspiration (mm/day) in a layer named ET24; negative values are set
+to 0. With a METRIC.EB() result: a SpatRaster with layers ETinst
+(instantaneous ET at the overpass, mm/h), ETrF (reference ET fraction,
+unitless), ET24 (mm/day, negative values set to 0) and HgtRnG (1 where H >
+Rn - G, else 0), and C.rad for METRIC.EB() results computed with a DEM.
 }
 \description{
-Calculates daily ET from a surface energy balance and Weather Station
+Calculates the daily (24 h) actual evapotranspiration: the instantaneous ET
+(from LE = Rn - G - H) divided by the instantaneous alfalfa reference ET
+(ETr, see hourlyET()) at the satellite overpass gives the reference ET
+fraction (ETrF), which is multiplied by the daily reference ET. The simplest
+call is ET24h(EB), with EB from METRIC.EB().
+}
+\details{
+ETrF is a crop coefficient on the alfalfa reference basis. To compare it
+with a crop coefficient on the grass reference basis (Kc, FAO-56), multiply
+it by the ratio of the daily alfalfa and grass reference ET,
+dailyET(WeatherStation) / dailyET(WeatherStation, ET = "ETo").
+
+LE = Rn - G - H is not limited, so ETinst and ETrF are negative where H >
+Rn - G (usually hot, dry pixels, or where the calibration does not fit);
+layer HgtRnG flags them. METRIC.EB() sets LE to 0 there.
+}
+\examples{
+# the usual way: ET24h() takes the result of METRIC.EB()
+# a small window of the Landsat 7 example scene, to run quickly
+MTL <- system.file("extdata", "L7.MTL.txt", package = "water")
+WeatherStation <- read.WSdata(WSdata = system.file("extdata", "apples.csv", package = "water"),
+  date.format = "\%d/\%m/\%Y", lat = -35.42222, long = -71.38639, elev = 201, height = 2.2,
+  cf = c(1, 0.2777778, 1), tz = "America/Santiago", MTL = MTL)
+image.DN <- terra::rast(L7_Talca)[1:60, 1:80, drop = FALSE]
+Energy.Balance <- METRIC.EB(image.DN = image.DN, WeatherStation = WeatherStation, MTL = MTL,
+                            sat = "L7", thermalband = image.DN$Thermal1, plain = TRUE)
+ET <- ET24h(Energy.Balance)
+plot(ET$ET24)
+
+# step by step, with the layers computed one by one:
+# a small window of the Landsat 7 example scene, to run quickly
+MTL <- system.file("extdata", "L7.MTL.txt", package = "water")
+WeatherStation <- read.WSdata(WSdata = system.file("extdata", "apples.csv", package = "water"),
+  date.format = "\%d/\%m/\%Y", lat = -35.42222, long = -71.38639, elev = 201, height = 2.2,
+  cf = c(1, 0.2777778, 1), tz = "America/Santiago", MTL = MTL)
+image.DN <- terra::rast(L7_Talca)[1:60, 1:80, drop = FALSE]
+DEM <- terra::rast(DEM_Talca)[1:60, 1:80, drop = FALSE]
+surface.model <- METRICtopo(DEM)
+solar.angles <- solarAngles(surface.model = surface.model,
+                            WeatherStation = WeatherStation, MTL = MTL)
+Rs.inc <- incSWradiation(surface.model = surface.model, solar.angles = solar.angles,
+                         WeatherStation = WeatherStation)
+image.TOAr <- calcTOAr(image.DN, sat = "L7", MTL = MTL,
+                       incidence.rel = solar.angles$incidence.rel)
+image.SR <- suppressWarnings(calcSR(image.TOAr, sat = "L7", surface.model = surface.model,
+                   incidence.hor = solar.angles$incidence.hor, WeatherStation = WeatherStation))
+albedo <- albedo(image.SR, coeff = "Tasumi", sat = "L7")
+LAI <- LAI(method = "metric2010", image = image.TOAr, L = 0.1)
+Ts <- suppressWarnings(surfaceTemperature(image.DN = image.DN, LAI = LAI, sat = "L7",
+                                          WeatherStation = WeatherStation))
+Rl.out <- outLWradiation(LAI = LAI, Ts = Ts)
+Rl.inc <- incLWradiation(WeatherStation, DEM = surface.model$DEM,
+                         solar.angles = solar.angles, Ts = Ts)
+Rn <- netRadiation(LAI, albedo, Rs.inc, Rl.inc, Rl.out)
+G <- soilHeatFlux(image = image.SR, Ts = Ts, albedo = albedo, Rn = Rn, LAI = LAI)
+Z.om <- momentumRoughnessLength(LAI = LAI, mountainous = TRUE, method = "short.crops",
+                                surface.model = surface.model)
+anchors <- calcAnchors(image = image.TOAr, Ts = Ts, LAI = LAI, albedo = albedo, Z.om = Z.om,
+                      WeatherStation = WeatherStation, plots = FALSE, verbose = FALSE)
+H <- calcH(anchors = anchors, Ts = Ts, Z.om = Z.om, WeatherStation = WeatherStation,
+           DEM = DEM, Rn = Rn, G = G, plots = FALSE, verbose = FALSE)
+# the layers computed above
+ET24h(Rn, G, H$H, Ts, WeatherStation = WeatherStation,
+      ETr.daily = dailyET(WeatherStation, MTL = MTL))
 }
 \references{
 R. G. Allen, M. Tasumi, and R. Trezza, "Satellite-based energy balance for mapping evapotranspiration with internalized calibration (METRIC) - Model" Journal of Irrigation and Drainage Engineering, vol. 133, p. 380, 2007
 }
+\seealso{
+Other ET functions:
+\code{\link[=Crad]{Crad()}},
+\code{\link[=ETperiod]{ETperiod()}},
+\code{\link[=dailyET]{dailyET()}},
+\code{\link[=dailyETseries]{dailyETseries()}},
+\code{\link[=hourlyET]{hourlyET()}}
+}
 \author{
 Guillermo Federico Olmedo
 }
+\concept{ET functions}

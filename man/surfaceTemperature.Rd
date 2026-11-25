@@ -4,29 +4,92 @@
 \alias{surfaceTemperature}
 \title{Estimates Land Surface Temperature from Landsat Data}
 \usage{
-surfaceTemperature(image.DN, sat = "auto", LAI, aoi, method = "SC",
-  WeatherStation, thermalband)
+surfaceTemperature(
+  image.DN,
+  sat = "auto",
+  LAI,
+  method = "METRIC",
+  WeatherStation,
+  thermalband,
+  MTL,
+  atmosphere,
+  aoi
+)
 }
 \arguments{
-\item{image.DN}{raw image in digital numbers}
+\item{image.DN}{raw image in digital numbers, e.g. from loadImage()}
 
-\item{sat}{"L7" for Landsat 7, "L8" for Landsat 8 or "auto" to guess from filenames}
+\item{sat}{"L7", "L8", "L9" or "auto" to detect it from the MTL
+file (MTL is then required)}
 
-\item{LAI}{raster layer with leaf area index. See LAI()}
+\item{LAI}{SpatRaster with leaf area index, from LAI()}
 
-\item{aoi}{area of interest to crop images, if 
-waterOptions("autoAoi") == TRUE will look for any 
-object called aoi on .GlobalEnv}
+\item{method}{"METRIC" (default; Allen et al., 2007, Eqs. 20-21)
+or "SW" (split window, Landsat 8 and 9 only; deprecated). "SC" was removed
+in version 1.0}
 
-\item{method}{"SC" for single channel or "SW" for split window 
-algorithm. "SW" is only available for L8}
+\item{WeatherStation}{Not used; kept for backward compatibility}
 
-\item{WeatherStation}{Weather Station data}
+\item{thermalband}{thermal band in digital numbers. Optional: if missing,
+image.DN$Thermal1 is used (L7: band 6 low gain; L8/L9: band 10)}
 
-\item{thermalband}{Satellite thermal band. For L8 this should be band 10. Deprecated argument}
+\item{MTL}{path to the Landsat metadata (*_MTL.txt) file. For L8
+and L9 the radiance rescaling and thermal constants are read from it.
+Required for L9; without it L8 uses Landsat 8 defaults}
+
+\item{atmosphere}{Optional atmospheric correction: a named list or
+SpatRaster with tau (narrow-band transmissivity), Rp (path radiance) and
+Rsky (downward thermal radiance, both W m-2 sr-1 um-1). For Landsat 8 and 9
+Level-2 products, the per-pixel bands ST_ATRAN * 0.0001, ST_URAD * 0.001 and
+ST_DRAD * 0.001. If missing, the general values of Allen et al. (2007) are
+used: tau = 0.866, Rp = 0.91 and Rsky = 1.32}
+
+\item{aoi}{Not used (a warning is given when it is passed); kept for
+backward compatibility}
+}
+\value{
+SpatRaster with land surface temperature (K).
 }
 \description{
-Surface temperature is estimated using a modified Plank equation considering empirical constants for Landsat images. In addition, this model implements a correction of thermal radiance following to Wukelic et al. (1989).
+Estimates the land surface temperature from the thermal band in digital
+numbers with the METRIC equations (Allen et al., 2007, Eqs. 20-21): the
+at-sensor radiance is corrected for the atmosphere and for the surface
+emissivity, and converted to temperature with the K1 and K2 constants of
+the band. For Landsat 8 and 9, the Level-2 surface temperature
+(image.SR$Band_10 from loadImageSR(), used by default by METRIC.EB()) is
+preferred.
+}
+\details{
+Rc = (Lt - Rp) / tau - (1 - eNB) Rsky (Eq. 21), Ts = K2 / ln(eNB K1 / Rc +
+1) (Eq. 20), with the narrow-band emissivity eNB = 0.97 + 0.0033 LAI (0.98
+for LAI > 3). The general atmospheric values come from MODTRAN runs for
+Landsat 5 and 7 in Idaho; for Landsat 8 and 9 band 10 they can bias Ts by
+several K (-6 K in the example crop against the Level-2 product), so a
+warning is given when they are used for Landsat 8 or 9: use the Level-2
+surface temperature, or the per-pixel atmosphere bands.
+}
+\examples{
+# a small window of the Landsat 7 example scene, to run quickly
+MTL <- system.file("extdata", "L7.MTL.txt", package = "water")
+WeatherStation <- read.WSdata(WSdata = system.file("extdata", "apples.csv", package = "water"),
+  date.format = "\%d/\%m/\%Y", lat = -35.42222, long = -71.38639, elev = 201, height = 2.2,
+  cf = c(1, 0.2777778, 1), tz = "America/Santiago", MTL = MTL)
+image.DN <- terra::rast(L7_Talca)[1:60, 1:80, drop = FALSE]
+DEM <- terra::rast(DEM_Talca)[1:60, 1:80, drop = FALSE]
+surface.model <- METRICtopo(DEM)
+solar.angles <- solarAngles(surface.model = surface.model,
+                            WeatherStation = WeatherStation, MTL = MTL)
+Rs.inc <- incSWradiation(surface.model = surface.model, solar.angles = solar.angles,
+                         WeatherStation = WeatherStation)
+image.TOAr <- calcTOAr(image.DN, sat = "L7", MTL = MTL,
+                       incidence.rel = solar.angles$incidence.rel)
+image.SR <- suppressWarnings(calcSR(image.TOAr, sat = "L7", surface.model = surface.model,
+                   incidence.hor = solar.angles$incidence.hor, WeatherStation = WeatherStation))
+albedo <- albedo(image.SR, coeff = "Tasumi", sat = "L7")
+LAI <- LAI(method = "metric2010", image = image.TOAr, L = 0.1)
+Ts <- suppressWarnings(surfaceTemperature(image.DN = image.DN, LAI = LAI, sat = "L7",
+                                          WeatherStation = WeatherStation))
+plot(Ts)
 }
 \references{
 R. G. Allen, M. Tasumi, and R. Trezza, "Satellite-based energy balance for 
@@ -34,25 +97,27 @@ mapping evapotranspiration with internalized calibration (METRIC) -
 Model" Journal of Irrigation and Drainage Engineering, vol. 133, 
 p. 380, 2007 \cr
 
-Wukelic G. E.; Gibbons D. E.; Martucci L. M. & Foote, H. P. Radiometric 
-calibration of Landsat thematic mapper thermal band Remote Sensing of 
-Environment, 1989, 28, (339-347) \cr
-
 Jimenez-Munoz, J. C., Sobrino, J. A., Skokovic, D., Mattar, C., & Cristobal, 
-J. (2014). Land surface temperature retrieval methods from landsat-8 thermal 
+J. (2014). Land surface temperature retrieval methods from Landsat-8 thermal
 infrared sensor data.  IEEE Geoscience and Remote Sensing Letters, 11(10), 
-1840–1843. http://doi.org/10.1109/LGRS.2014.2312032 \cr
+1840-1843. http://doi.org/10.1109/LGRS.2014.2312032
 }
 \seealso{
-Other net radiation related functions: \code{\link{LAI}},
-  \code{\link{METRICtopo}}, \code{\link{SWtrasmisivity}},
-  \code{\link{albedo}}, \code{\link{incLWradiation}},
-  \code{\link{incSWradiation}}, \code{\link{netRadiation}},
-  \code{\link{outLWradiation}}, \code{\link{soilHeatFlux}},
-  \code{\link{solarAngles}}
+Other net radiation related functions:
+\code{\link[=LAI]{LAI()}},
+\code{\link[=METRICtopo]{METRICtopo()}},
+\code{\link[=SWtransmissivity]{SWtransmissivity()}},
+\code{\link[=albedo]{albedo()}},
+\code{\link[=incLWradiation]{incLWradiation()}},
+\code{\link[=incSWradiation]{incSWradiation()}},
+\code{\link[=netRadiation]{netRadiation()}},
+\code{\link[=outLWradiation]{outLWradiation()}},
+\code{\link[=soilHeatFlux]{soilHeatFlux()}},
+\code{\link[=solarAngles]{solarAngles()}}
 }
 \author{
 Guillermo Federico Olmedo
 
-Fonseca-Luengo, David
+David Fonseca-Luengo
 }
+\concept{net radiation related functions}

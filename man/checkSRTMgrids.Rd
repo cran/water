@@ -7,15 +7,38 @@
 checkSRTMgrids(raw.image)
 }
 \arguments{
-\item{raw.image}{image to calculate extent}
+\item{raw.image}{SpatRaster whose extent (and CRS) is used to find the SRTM
+tiles needed}
+}
+\value{
+Character vector with the file names of the SRTM tiles needed (e.g.
+"s34_w069_1arc_v3.tif"). The number of tiles is also reported.
 }
 \description{
-Check needed SRTM grids from image extent
+Lists the 1 x 1 degree SRTM tiles needed to cover the extent of an image,
+with the file names that prepareSRTMdata() reads. The tiles can be
+downloaded from EarthExplorer (dataset "SRTM 1 Arc-Second Global"). To
+download a DEM automatically, use getDEM().
+}
+\examples{
+# a small window of the Landsat 7 example scene, to run quickly
+MTL <- system.file("extdata", "L7.MTL.txt", package = "water")
+WeatherStation <- read.WSdata(WSdata = system.file("extdata", "apples.csv", package = "water"),
+  date.format = "\%d/\%m/\%Y", lat = -35.42222, long = -71.38639, elev = 201, height = 2.2,
+  cf = c(1, 0.2777778, 1), tz = "America/Santiago", MTL = MTL)
+image.DN <- terra::rast(L7_Talca)[1:60, 1:80, drop = FALSE]
+DEM <- terra::rast(DEM_Talca)[1:60, 1:80, drop = FALSE]
+# names of the SRTM tiles needed to cover the image
+checkSRTMgrids(image.DN)
 }
 \seealso{
-Other support functions: \code{\link{createAoi}},
-  \code{\link{prepareSRTMdata}}
+Other support functions:
+\code{\link[=createAoi]{createAoi()}},
+\code{\link[=getDEM]{getDEM()}},
+\code{\link[=prepareSRTMdata]{prepareSRTMdata()}},
+\code{\link[=waterOptions]{waterOptions()}}
 }
 \author{
 Guillermo Federico Olmedo
 }
+\concept{support functions}

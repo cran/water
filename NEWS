@@ -2,6 +2,449 @@ water:
 change log. From 09/09/2015. Most recent changes first / on top.
 Guillermo OLMEDO
 -----------------------------------------------------------------
+VERSION 1.0
+
+Fixes that change results:
+
+* waterOptions(writeResults = TRUE) gave wrong results: every function
+  wrote and overwrote a file with a fixed name, so later calls changed the
+  objects that read it (e.g. a "Perrier" METRIC.EB() run used the
+  short.crops roughness, mean LE 194.8 instead of 226.9 W/m2), and two runs
+  overwrote each other's EB.tif (#99).
+
+* Reference ET follows ASCE-EWRI (2005) (#89): Rs/Rso is limited to 0.3-1
+  (it was set to 0 below 0.3), the cloudiness function of the last sunny
+  period is carried over the night (it was fixed at 0.05), Cd and G switch
+  between day and night on Rn > 0 (it was Rs > 0), the extraterrestrial
+  radiation is integrated between sunrise and sunset, and T + 273 is used in
+  the aerodynamic term. dailyET() sums the hourly periods ending at 01:00 to
+  24:00, as ASCE does (it summed those ending at 00:00 to 23:00). Daily ETr:
+  Talca example 7.09 -> 6.53 mm (-7.8%), Mendoza 5.34 -> 5.41 mm (+1.3%);
+  daily ET (ET24h()) changes in the same proportion. The instantaneous ETr
+  at the overpass changes by less than 0.02%. Checked against the hourly
+  test case of the RefET package (ASCE method) within 1e-5 mm/h.
+* dailyET() accepts a Date for date, and returns NA with a warning when the
+  records do not cover the day (it summed the hours available) (#90). If only
+  the last record (24:00, the 00:00 of the next day) is missing, it gives a
+  message and sums the 23 hours available (about -0.5%).
+* Model constants (#107): the transmissivity uses -0.00146 (Allen et al.
+  2007, Eq. 4; it was -0.00149): net radiation +1 W/m2. The air density
+  of the dT calibration uses the temperature of the air, Ts - dT (Eq. 37),
+  at every pixel and at the anchors, so H closes at the hot anchors (it was
+  1-3 W/m2 off): mean LE +0.5% (Landsat 8 example, flexible anchors),
+  +0.7% (percentile). MODIS albedo uses the weights of Tasumi et al. (2008)
+  (alb.coeff = "auto" and other coefficients: Tasumi, with a warning); the
+  direct-NIR set of Liang gave about 0.275 for green vegetation against
+  0.178. SWtransmissivity() is the correctly spelled name of
+  SWtrasmisivity(), which remains as an alias.
+* Anchor pixels (#92): new default anchors.method = "percentile", with
+  criteria relative to the scene, in the spirit of the automated
+  calibration of Allen et al. (2013) and Morton et al. (2013): cold
+  candidates have NDVI at or above its 95th percentile and LAI of at least
+  4; hot candidates NDVI at or below its 10th percentile, NDVI above 0 and
+  albedo 0.10 to 0.35 (no water, urban surfaces or bright rock); both with
+  a homogeneous surface temperature (sd up to 1.5 K in 5 x 5 pixels; NDVI
+  quantiles over land, so water does not move them); the
+  coldest and hottest 20% are the anchors, averaged by calcH(). With the
+  fixed windows of "flexible" (n = 5), the Landsat 8 example had ETrF >
+  1.1 on 16.0% of the pixels (cold anchors warmer than many crops); with
+  "percentile", 0.7%; mean LE 256.9 -> 225.2 W/m2 (-12.3%), daily ET 4.16 -> 3.64 mm;
+  Landsat 7 example mean LE -5.9%. The percentile method relaxes its
+  limits when too few candidates are found (cold LAI 4 -> 3, cold NDVI 0.95 ->
+  0.85, hot quantile 0.1 -> 0.3), and says so. The other methods are unchanged; use
+  anchors.method = "flexible" for the old default. Parameters in
+  anchors.control().
+* Land surface temperature (#95): LST.method = "auto" (new default) uses
+  the Level-2 surface temperature (image.SR$Band_10) for Landsat 8 and 9
+  when it is present, also when image.DN is passed (before, Ts was
+  estimated from the thermal band with "SC", +3 K against the Level-2
+  product in the example); "L2" requires it. The thermal-band path is now
+  "METRIC" (Allen et al. 2007, Eqs. 20-21) with the paper's general
+  atmospheric values (tau 0.866, Rp 0.91, Rsky 1.32), or per-pixel values
+  with surfaceTemperature(atmosphere = ); for Landsat 8/9 it warns that the
+  general values can bias Ts by several K (-6 K in the example). "SC" was
+  removed; "SW" is deprecated. Landsat 7 example: mean Ts 313.9 -> 303.7 K
+  (air 295.7 K), mean LE +0.8% (the calibration absorbs most of a uniform
+  bias in Ts).
+* calcH() (#94): when the wind extrapolated to 200 m is below 2 m/s, 2 m/s
+  is used (calcH.control(u200.min = ); before, below 1 m/s it jumped to
+  4 m/s, so 0.50 and 0.53 m/s at the station gave very different results);
+  momentumRoughnessLength() (and so METRIC.EB()) keeps the momentum
+  roughness length at least 0.005 m (bare soil, Allen et al. 2007), for
+  every method (a Z.om passed to calcH() is used as given); maxit is the
+  number of iterations (one fewer were run); the iteration stops with an
+  error when it diverges. Optional
+  damping: calcH.control(damping = 0.5). calcH() and METRIC.EB()
+  ($calibration) report a, b, converged, iterations and u200; a negative
+  friction velocity (very unstable air over tall roughness) gives NA instead
+  of a flipped H; method = "lm" warns with more than 10 anchor pairs. Mean LE:
+  Landsat 8 example -1.6% (roughness floor), Landsat 7 example +0.9%.
+* calcH(): the ET of the cold pixels was ETp.coef times the hourly grass
+  reference ET (ETo), while ET24h() and dailyET() extrapolate with the
+  alfalfa reference ETr. Both now use ETr, as in Allen et al. (2007), so the
+  default ETp.coef = 1.05 is the paper's 1.05 * ETr. With the same ETp.coef,
+  ET increases by the ETr/ETo ratio (8% and 14% in the examples). Scripts
+  that used ETp.coef = 1.2 to approximate 1.05 * ETr with ETo should now use
+  1.05; the vignettes and examples now use the default. With
+  anchors.method = "flexible", the grass-based Kc of Gonzalez et al. (2015)
+  is multiplied by ETo/ETr, so that update gives the same cold-pixel ET as
+  before.
+* Z.om.ws (momentum roughness length of the weather station, Allen et al.
+  2007, Eq. 32): the default is now 0.015 m, 0.123 times the 0.12 m clipped
+  grass of a standard station (Allen et al. 1998), in METRIC.EB() (it was
+  0.0018) and calcH() (it was 0.03). METRIC is not very sensitive to it
+  (0.4% in LE in the example).
+
+* METRICtopo(): since the migration to terra, slope and aspect were
+  computed in degrees and used as radians, so every run with a DEM
+  (plain = FALSE) was wrong (e.g. negative net radiation). With
+  plain = TRUE the results no longer have an NA border.
+* solarAngles(): the hour angle is now negative before solar noon; east and
+  west slopes were swapped for morning (Landsat) overpasses (plain = FALSE).
+* calcTOAr(): Landsat 8/9 TOA reflectance was divided by the incidence angle
+  instead of its cosine (about 22% too high), which biased LAI and the anchor
+  pixels whenever image.DN was used.
+* calcTOAr(), calcRadiance(): bands are taken by name. The L7_Talca example
+  stores SWIR2 after Thermal1, so "SWIR2" was computed from the thermal band.
+* read.WSdata(): the overpass time in the MTL file (UTC) was read as
+  Europe/London time, one hour off for scenes acquired during British Summer
+  Time (late March to late October).
+* calcAnchors(): pixels with masked reflectance (e.g. clouds) could be
+  selected as anchors; "best" failed to find cold pixels; all methods
+  returned only one hot and one cold pixel regardless of n; "random" could
+  select a pixel that was not a candidate.
+* LAI(method = "metric"): LAI is 6 for SAVI > 0.687 (Allen et al. 2007);
+  dense vegetation gave NaN.
+* calcRadiance(): Landsat 7 radiance was NaN (MTL values without "E-"
+  notation), which broke LAI.method = "vineyard" for Landsat 7.
+* LAI(method = "turner"): Turner et al. (1999) predict NDVI from LAI, but the
+  equation was applied as LAI = f(NDVI), so LAI never exceeded 0.75 and
+  METRIC.EB() found no cold anchors. It is now inverted (LAI 0 to 6) (#70).
+* hourlyET(), dailyET(): the solar time correction used the station
+  longitude instead of the centre of its time zone, so it was always 0.
+  long.z now defaults to 15 degrees per hour of the UTC offset of the
+  station records (-45 for UTC-3), including daylight saving time; hourly
+  ETr at the overpass of the Talca example: -2.4% (#77). ET24h() now uses
+  the instantaneous ETr at the overpass, as calcH() does (ETrF =
+  instantaneous ET / instantaneous ETr).
+* albedo(): for MODIS only 6 of the 7 coefficients were used (#78).
+* loadImageSR() masks pixels where any band is outside the valid range of
+  the product (7273 to 43636 DN, reflectance 0 to 1), not only the fill
+  value, in every layer (surface temperature included), and says how many.
+  In the Landsat 8 example, 109 pixels (0.4%) were negative and raised the
+  maximum NDVI from 0.923 to 1.88, which moved the NDVI threshold of the
+  cold anchors: the cold anchors change, and mean LE and daily ET increase
+  by 4.2% (4.4% on the cells valid before and after). Some masked pixels are
+  dense crops with slightly negative blue reflectance (an atmospheric
+  over-correction of the product), so the outputs have small holes over
+  some of the best-watered fields. loadImage() sets the Level-1 fill (DN 0)
+  to NA: it gave Ts = -53.6 K and entered the anchor search; for MODIS, the
+  land surface temperature fill (0) is set to NA (#85).
+* albedo(), LAI(), soilHeatFlux(), calcSR() and calcAnchors() select the
+  bands by name, as calcTOAr() and calcRadiance() did: with the bands in
+  another order, LAI and albedo were silently wrong. For MODIS stacks (R
+  and NIR first), LAI() and soilHeatFlux() used the blue and green bands
+  for NDVI; albedo(sat = "auto") recognises MODIS by its SWIR3 layer (#86).
+* Example data: the wind speed in apples.csv is in km/h, but the
+  read.WSdata() example and the METRIC vignettes read it as m/s. The daily
+  reference ET of the example was 10.2 instead of 7.0 mm, and the daily ET
+  of the vignettes about 45% too high (#72). The example files and their
+  units are documented in ?`water-extdata`.
+
+New:
+
+* METRIC.EB(Zom.method = "Perrier") has the argument crop.height (a number or a
+  raster of the crop height, m) as an alternative to h in extraParameters;
+  cells with 0 or NA (bare soil) get the minimum roughness of 0.005 m.
+
+* ETperiod() adds up the ET of a period (a month, a season) from the ETrF of
+  several images, as in Allen et al. (2007), Eqs. 58 and 59: ETrF is
+  interpolated for each day, pixel by pixel (cloud-masked dates are skipped),
+  and multiplied by the daily reference ET. It accepts C.rad and returns the
+  ET of the period, ETrF of the period and the number of valid dates.
+  dailyETseries() gives the daily reference ET of every day of the
+  weather station records for it.
+
+* momentumRoughnessLength(method = "Perrier") takes fLAI and h as numbers or as
+  rasters on the grid of LAI, so that crop height can come from a field map.
+
+* ET24h(EB) takes the result of METRIC.EB() and returns layers ETinst
+  (mm/h), ETrF (reference ET fraction, the alfalfa-basis crop coefficient),
+  ET24 (mm/day) and HgtRnG (pixels where H > Rn - G, where ETinst and ETrF
+  are negative). ETr.daily defaults to dailyET() for the day of the
+  overpass. The help page explains how to compare ETrF with a grass-basis
+  Kc. The call with Rn, G, H and Ts gives the same ET24 as ET24h(EB) (#91).
+* Single-layer results are named (e.g. "Rn", "G", "H", "albedo", "Z.om",
+  "ET24"); they had empty names (#91).
+* Mountain mode, plain = FALSE (#97): new Crad(), the slope correction of
+  daily ET (Allen et al. 2007, Eqs. 55-57), used by ET24h() for METRIC.EB()
+  results computed with a DEM (it was never computed); the anchors are
+  chosen on Ts referred to the elevation of the station, as the dT
+  calibration; slopes facing away from the sun get no direct radiation (it
+  could be negative); the lapse rate is calcH.control(lapse = ). Optional:
+  calcH.control(slope.min1 = TRUE) keeps the terrain factor of the
+  roughness (Eq. 35) at least 1, as in the METRIC manual. Landsat 7 with
+  DEM_Talca: C_rad 0.90 to 1.20 (1st to 99th percentile; limited to 0.5-2,
+  with the cosine of the incidence angle at least 0.1), mean LE -0.9%,
+  mean daily ET -0.5%. Flat runs are unchanged.
+* Hot and cold anchors (#96, optional): calcH.control(ETrF.hot = ) sets
+  the ET of the hot pixels after rain (Allen et al. 2007, Eq. 47; default
+  0, dry soil), and METRIC.EB() warns when the station recorded more than
+  5 mm of rain in the 3 days before the image. calcH.control(
+  cold.NDVI.rule = TRUE) lowers the ET fraction of cold anchors with NDVI
+  below 0.8 for every automatic method (before, only "flexible" with
+  relaxed criteria); off by default.
+* Calibration guards (#93): calcAnchors() warns when there are fewer than
+  20 hot or cold candidates (anchors.control(min.candidates = )): the area
+  may be too small or too homogeneous; it returns the candidate counts and,
+  for "flexible", the relaxed criteria of each type (the flex column now has
+  the hot relaxation on the hot rows). METRIC.EB() gives a message when the
+  scene has clouds (CLOUD_COVER) and the image was not masked with
+  cfmask(), and keeps the counts in $calibration.
+* Calibration diagnostics (#98): METRIC.EB() returns in $calibration the
+  mean Ts of the hot and cold anchors and their difference, the quantiles
+  of ETrF at the overpass and the shares of pixels with ETrF > 1.1,
+  ETrF < 0 and H > Rn - G, with the iteration results; it gives a one-line
+  message, and a warning when ETrF > 1.1 on more than 10% of the pixels
+  (cold anchors too warm; 16.0% in the Landsat 8 example with "flexible").
+  New summary() method and plotAnchors() (anchors over a false-colour
+  composite or Ts); print() includes the summary.
+* Faster (#101): calcH() iterates on the anchor pixels and then computes
+  all the pixels in one pass by blocks (terra::lapp()), instead of passing
+  over the whole raster in every iteration: about 9 times faster on the
+  example crop, with the same results (within 1e-12 W/m2). getDEM() treats
+  only a tile that does not exist as ocean (other errors, e.g. no
+  connection, stop instead of returning a DEM with holes), and reports the
+  missing tiles and the share of NA cells.
+* Consistent arguments (#102): METRIC.Rn() and METRIC.G() take their
+  shared arguments in the order of METRIC.EB() (image.DN, image.SR,
+  WeatherStation, MTL, ...; Rn of METRIC.G() and plots come last); LAI(image, method), albedo(image.SR, coeff,
+  sat, aoi) and calcH(anchors, Ts, ..., method) take the data first (old
+  positional calls of LAI() and albedo() work, with a warning; the others
+  stop with a clear error); unused aoi arguments are last and warn when
+  passed; METRIC.EB(), METRIC.Rn() and METRIC.G() check that image.SR,
+  image.DN, surf.temp, thermalband and DEM are on the same grid. New
+  default alb.coeff = "auto" in the METRIC functions (albedo() keeps
+  "Tasumi"): "Olmedo" for Landsat 8 and 9, "Tasumi" for
+  Landsat 7 and MODIS (Landsat 8/9 runs that relied on the old
+  default "Tasumi" change by about 0.2% in LE with the percentile anchors,
+  0.6% with "flexible").
+* anchors.control() and calcH.control() group the parameters of the anchor
+  selection and of the H iteration: METRIC.EB(anchors.control = ,
+  calcH.control = ). deltaTemp, minDist and WSbuffer in extraParameters
+  still work, with a deprecation message (#102).
+
+Landsat 8 and 9 (Collection 2):
+
+* METRIC.EB(), METRIC.Rn() and METRIC.G() run from Collection 2 Level-2
+  products: image.DN is optional when image.SR is supplied, and surf.temp
+  takes the Level-2 surface temperature. (Francisco Martín Corvalán)
+* loadImageSR() reads Collection 2 Level-2 files (SR_B2 to SR_B7, plus ST_B10
+  as "Band_10" in Kelvin), and stops if any of the six reflectance bands is
+  missing. The retired ESPA format is no longer read (#74); the Landsat 8
+  vignette points to the download guides for USGS and Planetary Computer.
+* cfmask() masks clouds with the Collection 2 QA_PIXEL band (fill, dilated
+  cloud, cirrus, cloud and cloud shadow bits), looks for the band in path,
+  and implements the buffer argument (#55, #47).
+* Landsat 9 support: getSat() returns "L9", L9 is handled like L8 (same
+  bands), and surfaceTemperature() reads the thermal calibration constants
+  from the MTL file (new MTL argument, required for L9).
+* sat = "auto" detects the satellite from the MTL file or the file names.
+* New example data: a 134 x 184 pixel Collection 2 Level-2 crop (SR, ST,
+  QA_PIXEL and MTL) in inst/extdata/L8_C2. The ESPA surface reflectance
+  example files were removed.
+* The Landsat 8 vignette is now an evaluated Landsat 8/9 Collection 2
+  workflow and no longer refers to the retired ESPA service (#52).
+
+Other changes and fixes:
+
+* Every function has an example, except prepareSRTMdata() (it needs SRTM
+  files), that runs in a few seconds on a small window of the example scenes,.
+
+* Crad() is about six times faster (it works on blocks of cells instead of
+  about 3000 raster operations); the results are the same to rounding.
+  SWtransmissivity() also accepts numbers with NA.
+
+* calcTOAr() for Landsat 7 takes the radiance gains and offsets of the scene
+  from the MTL file (RADIANCE_MULT_BAND_n, RADIANCE_ADD_BAND_n), which depend
+  on the gain state of each band; the Landsat 7 Handbook values are used
+  only if the MTL file does not have them. The example scene is unchanged.
+
+* calcAnchors(): works when the weather station is outside the image;
+  "flexible" relaxes the criteria near the station and then, with a
+  warning, in the whole image; failed selections explain what to check;
+  plots = TRUE works without a weather station (#46).
+* read.WSdata(): clear errors for unknown time zones, unreadable dates and
+  non-numeric columns; rows with unreadable dates are removed with a
+  warning; tibbles and integer columns work (#41). An overpass outside the
+  station records gives a warning instead of an error (#28).
+  read.WSdata2() works (it reads with read.csv2()) and uses its height
+  argument (it was ignored and replaced by 2.2 m).
+* MTL must be the file name, not its contents (#45).
+* loadImage() accepts any scene prefix, e.g. real-time tier or renamed
+  files, and explains the expected names when nothing matches (#50).
+* prepareSRTMdata() returns the DEM on the image grid (#31).
+* New getDEM(): downloads the Copernicus DEM GLO-30 (30 m) tiles that cover
+  the image from the AWS Open Data registry (no account needed, only the
+  image area is read) and returns the DEM on the image grid (#75).
+  checkSRTMgrids() returns the file names of the SRTM tiles that
+  prepareSRTMdata() reads, instead of outdated download links (#71).
+* METRIC.G() can run: same arguments as METRIC.Rn(), plus G.method and an
+  optional Rn. METRIC.EB(), METRIC.Rn() and METRIC.G() share the same
+  surface computations, so Rn and G are identical across them; Rn and G
+  gained L and LST.method.
+* METRIC.EB(), METRIC.Rn(), METRIC.G(): aoi crops the inputs (an aoi in
+  another CRS is reprojected); manual anchors work with the default
+  anchors.method; Zom.method = "custom" works; a thermal layer named
+  "thermal.low" is also found by METRIC.Rn() and METRIC.G().
+* print() and writeRaster() work on METRIC.EB() results (writeRaster() is
+  now an S4 method).
+* waterOptions(outputFolder, SRTMrepo) work; waterWriteResults = TRUE no
+  longer deletes temporary files in use.
+* calcH(method = "lm") could loop forever.
+* hourlyET() only accepts ET = "ETr" or "ETo" (calcH() requested the
+  invalid "ETor" and silently got ETo).
+* calcH() no longer fails with "raster has no values" when no pixel meets
+  the stability condition.
+* ET24h() plots with terra instead of spplot.
+* Example data (L7_Talca, DEM_Talca) are terra PackedSpatRaster objects;
+  use rast() to unpack them.
+* albedo(sat = "auto") and calcSR(sat = "auto", MTL = ) no longer look for
+  Landsat files in the working directory; mtlValues() stops for keys that
+  Level-2 MTL files repeat in several groups unless a group is given;
+  print() on weather station data returns it invisibly; LAI(sat = ) warns
+  that sat is not used; typos in messages (#78).
+* Help pages: references checked and completed with DOIs (#79); links
+  between help pages; examples for METRIC.Rn(), METRIC.G() and
+  loadImageSR() (#81).
+* The Planetary Computer download guide only lists the scenes when ids is
+  empty, and downloads the ones listed in ids (#80).
+* Regression tests in tests/.
+
+Input checks:
+
+* Method arguments (sat, alb.coeff, LAI.method, LST.method, G.method,
+  Zom.method, anchors.method in the METRIC functions; method, coeff, sat
+  and ET in the others) must be one of the documented names, exactly. An
+  unknown name stops before any raster work, with the valid names and a
+  hint for typos (e.g. "did you mean \"Olmedo\"?"); before, it was ignored
+  or gave an unrelated error later. LST.method = "SW" with Landsat 7 stops.
+  METRIC.EB() checks extraParameters: a named numeric vector with known
+  names, and a and b for Zom.method = "custom", fLAI and h for "Perrier"
+  (#82).
+* No hidden inputs (#87): aoi crops only when it is passed (an object called
+  aoi in the workspace was used by loadImage(), loadImageSR() and albedo()),
+  and the MTL file is never searched in the working directory (an unrelated
+  MTL file there changed the results or stopped read.WSdata()). Functions
+  that need it stop with "MTL is required", and sat = "auto" needs MTL
+  (loadImage(sat = "auto") still reads the MTL file in its path folder,
+  which defaults to the working directory).
+  read.WSdata() without MTL says that the conditions at the overpass were
+  not computed. dailyET() without MTL takes the day from date or from the
+  overpass conditions (at.sat); it summed the first 24 records, another day
+  in the examples. calcTOAr() and calcSR() no longer try to load or compute
+  a missing image.
+* read.WSdata() (#83): a named columns vector is matched by name, in any
+  order (the names were ignored, so columns in another order were read as
+  the wrong variables); records are sorted by time (reversed records
+  failed, shuffled ones gave wrong overpass conditions), exact duplicates
+  are removed and records with the same time and different values (e.g.
+  the repeated hour when daylight saving time ends) are averaged, with a
+  warning (many conflicting times outside one clock hour stop: a logger
+  fault); values are checked after cf: impossible ones stop and unusual
+  ones warn with the likely unit problem (Kelvin or Fahrenheit, RH as a
+  fraction, wind in km/h, radiation in MJ); a semicolon-separated file
+  points to read.WSdata2().
+* Surface temperature must be in Kelvin (#86): METRIC.EB(), METRIC.Rn(),
+  METRIC.G(), calcAnchors() and calcH() stop when it looks like Celsius
+  (ET was 86% too high, with wrong Rn and G), and when more than 1% of the
+  cells are below 200 K (unmasked fill or clouds); fewer such cells give a
+  warning. A stack whose layers have the standard names (B, G, R, NIR,
+  ...) but lacks one that is needed is an error; layers without standard
+  names are used by position, with a warning.
+* calcH() checks the anchors before iterating (#88): columns and labels
+  ("Hot" and "Cold" are accepted), inside the image (sf anchors in another
+  CRS are transformed), Ts, Rn, G, Z.om and DEM not NA there, and the hot
+  anchors at least 5 K warmer than the cold ones (each pair for
+  method = "lm"). Swapped labels ran without complaint (mean H 378 instead
+  of 264 W/m2), and a smaller difference means an area without the wet
+  and dry extremes METRIC needs (in a 600 m farm crop, daily ET was about
+  40% low). The Landsat 8 example has 6.7 K.
+* Weather at the overpass (#84): read.WSdata() warns when the station
+  radiation at the overpass is below 80% (or above 110%) of the ASCE-EWRI
+  clear-sky radiation: the cold pixels are calibrated with it, and METRIC
+  needs a clear image. The Landsat 8 example now warns: 587 W/m2 against a
+  clear-sky 860 W/m2. New options, off by default: timestamps = "end" or
+  "start" for records that are means over a period (interpolated at the
+  middle of the periods); overpass.radiation = "clear-sky" to calibrate
+  with clear-sky radiation (calcH() and ET24h() use the same reference
+  ET); Kt, the clearness of the atmosphere (it was fixed at 1), in
+  METRIC.EB(), METRIC.Rn(), METRIC.G(), incSWradiation(), incLWradiation()
+  and calcSR().
+
+Behaviour changes to check in existing scripts:
+
+* Method names are matched exactly: partial or differently capitalised
+  names (e.g. ET = "ETR", G.method = "T") are errors (#82).
+* LST.method = "SC" is an error (removed); the default is now "auto"
+  (#95).
+* METRIC.Rn() and METRIC.G(): arguments in the order of METRIC.EB(); name
+  them in positional calls. LAI(), albedo(), calcH(), calcTOAr(), calcSR(),
+  soilHeatFlux(), surfaceTemperature() and calcAnchors(): data first,
+  method and aoi later. The default alb.coeff is "auto" (#102).
+* The default anchors.method is now "percentile" (#92); pass
+  anchors.method = "flexible" to reproduce earlier results. n is not used
+  by "percentile".
+* dailyET() sums the hourly periods ending at 01:00 to 24:00, and returns
+  NA, with a warning, when the records do not cover the day (#89, #90).
+* Single-layer results have names ("Rn", "G", "H", "ET24", ...): check
+  scripts that select or rename layers (#91).
+* Deprecated: deltaTemp, minDist and WSbuffer in extraParameters (use
+  anchors.control()) and LST.method = "SW" (#102, #95).
+* Pass MTL explicitly: it is no longer searched in the working directory;
+  waterOptions(autoAoi) is ignored, with a warning: pass aoi instead (#87).
+* dailyET(): the day is now taken in the time zone of the station records,
+  for date and for the MTL acquisition date (both used the UTC day: a few
+  hours off for date, and the previous day for stations east of about
+  UTC+10); a day without 24 hourly values gives a warning (#87, #90).
+* read.WSdata(): the names in columns are now used (they were ignored, and
+  only the order counted): a warning is given when the names change the
+  meaning of the vector. Check scripts whose names did not match the
+  columns (#83).
+
+* sf moved from Depends to Imports: library(water) no longer attaches sf,
+  so call library(sf) to use its functions directly (#81).
+* hourlyET(), dailyET(): see the long.z default above (#77).
+* cfmask() now applies its buffer argument (60 m by default) around the
+  masked clouds and shadows, also with keep; use buffer = 0 for the
+  previous behaviour.
+* read.WSdata(): a time zone that R does not know is now an error (R only
+  warned and used UTC).
+* hourlyET(): the solar time correction for long.z uses degrees, as in
+  ASCE (before it was about 57 times too small); longitudes are negative
+  for west.
+* read.WSdata2(): the default cf is now c(1, 1, 1), as in read.WSdata().
+* No side effects (#100): METRIC.EB(), METRIC.Rn(), METRIC.G(), calcAnchors(),
+  calcH() and ET24h() plot only with plots = TRUE (default: only in
+  interactive sessions), METRIC.EB() and plot() of weather station data
+  restore par(), and progress output is given with message() (the anchors
+  only with verbose = TRUE) instead of print(). ET24h() plots all the cells.
+* waterOptions(writeResults = TRUE): only the final outputs (EB, ET24, DEM)
+  are written to outputFolder; intermediate results go to terra's temporary
+  files with unique names (#99).
+* prepareSRTMdata(): with a polygon, the DEM is on the Landsat 30 m grid
+  of its projected CRS; a longitude/latitude polygon is an error.
+* Documentation: help files updated for terra/sf, Landsat 9 and
+  Collection 2, value sections added (#19, #5); vignette fixes (#6).
+
+
+VERSION 0.8.4
+
+* Fixed read.WSdata example using a fixed (the correct one) timezone. Before this
+  timezone of the example was estimated with user timezone
+* Fixed mistmatch between LAI code and LAI documentation
+* Suppress confusing warning on read.WSdata()
+
 
 VERSION 0.8
 

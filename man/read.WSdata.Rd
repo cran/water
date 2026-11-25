@@ -4,16 +4,28 @@
 \alias{read.WSdata}
 \title{Prepares weather station data}
 \usage{
-read.WSdata(WSdata, ..., height = 2.2, lat, long, elev, columns = c(date =
-  1, time = 2, radiation = 3, wind = 4, RH = 6, temp = 7, rain = 8),
-  date.format = "\%Y-\%m-\%d", time.format = "\%H:\%M:\%S",
-  datetime.format = "\%Y-\%m-\%d \%H:\%M:\%S", tz = "", cf = c(1, 1, 1),
-  MTL)
+read.WSdata(
+  WSdata,
+  ...,
+  height = 2.2,
+  lat,
+  long,
+  elev,
+  columns = c(date = 1, time = 2, radiation = 3, wind = 4, RH = 6, temp = 7, rain = 8),
+  date.format = "\%Y-\%m-\%d",
+  time.format = "\%H:\%M:\%S",
+  datetime.format = "\%Y-\%m-\%d \%H:\%M:\%S",
+  tz = "",
+  cf = c(1, 1, 1),
+  MTL,
+  timestamps = "instant",
+  overpass.radiation = "measured"
+)
 }
 \arguments{
 \item{WSdata}{csv file with weather station data or data.frame}
 
-\item{...}{additional parameter to pass to read.csv()}
+\item{...}{additional parameters passed to read.csv()}
 
 \item{height}{weather station sensors height in meters}
 
@@ -25,12 +37,18 @@ Negative values for west longitude}
 
 \item{elev}{elevation of weather station in meters}
 
-\item{columns}{vector with the column numbers in WSdata for the 
-date, time, radiation, wind, RH, temperature and 
-rain. If date and time are in the same column, the 
-column number has to be the same. Names in this
-vector are ignored and are presented on Usage and 
-examples only as a reference.}
+\item{columns}{numeric vector with the column numbers in WSdata
+of the date, time, radiation, wind, RH,
+temperature and rain. If date and time are in the
+same column, give the same number twice (or use
+datetime). A named vector is matched by name, in
+any order: date and time (or datetime),
+radiation, wind, RH, temp and, optionally, rain.
+An unnamed vector is taken in that order.
+Unknown or repeated names stop; pp is accepted
+for rain. A warning is given when the names give
+the vector another meaning than its order (before
+version 1.0 only the order was used).}
 
 \item{date.format}{date format. See strptime format argument.}
 
@@ -38,51 +56,104 @@ examples only as a reference.}
 
 \item{datetime.format}{datetime format. See strptime format argument.}
 
-\item{tz}{timezone of the weather station dates. If not 
-present assumes the same timezone as the computer running the code. See 
-strptime for details.}
+\item{tz}{time zone of the weather station clock (e.g.
+"America/Santiago"; see \code{\link[base:timezones]{OlsonNames}}). If "" (default) the time zone of the
+computer is assumed, with a warning. Always set it: the overpass time in the
+MTL file is UTC and is converted to this time zone. See strptime for
+details.}
 
-\item{cf}{conversion factor to convert radiation, wind, and 
+\item{cf}{conversion factor to convert radiation, wind, and
 temperature to W/m2; m/s and Celsius. See Details.}
 
-\item{MTL}{Metadata file. If not provided will look for one on
-working directory. If provided or present will calculate weather conditions
-on satellite overpass.}
+\item{MTL}{path to the Landsat metadata (MTL) file. When
+given, the weather conditions at the satellite overpass are interpolated
+(element at.sat); if the overpass is outside the records, a warning is
+given and at.sat is not computed. If missing, at.sat is not computed (with
+a message).}
+
+\item{timestamps}{"instant" (default) if each record is the value at
+its time; "end" or "start" if it is the mean over the period ending or
+starting at its time (e.g. hourly means). For period means, the conditions
+at the overpass are interpolated between the middles of the periods. The
+hourly and daily values are not shifted: hourlyET() and dailyET() already
+take hourly values as means over the hour ending at their time.}
+
+\item{overpass.radiation}{"measured" (default) uses the station radiation
+at the overpass; "clear-sky" uses the ASCE-EWRI (2005) clear-sky radiation
+instead (the measured value is kept in at.sat$radiation.measured), e.g.
+when clouds shade the station but not the image. calcH() (ET of the cold
+pixels) and ET24h() then use the same clear-sky reference ET. See Details.}
 }
 \value{
-waterWeatherStation object, with data.frames with all data, hourly
-data and conditions at satellite flyby.
+An object of class waterWeatherStation: a list with location (lat,
+long, elev, height), alldata (all records), daily (daily summaries), hourly
+(values interpolated every hour) and, when an MTL file is available, at.sat
+(conditions interpolated at the satellite overpass).
 }
 \description{
-Prepares weather station data
+Reads weather station records from a csv file or a data.frame, interpolates
+them every hour and, with a Landsat metadata (MTL) file, at the time of the
+satellite overpass.
 }
 \details{
-For cf, if your data is in W/m2, km/h and Celsius (radiation, wind, 
+For cf, if your data is in W/m2, km/h and Celsius (radiation, wind,
 temperature), cf should be: cf = c(1,0.2777778,1)
+
+The records are sorted by time. Exact duplicates are removed, and records
+with the same time and different values (e.g. the repeated hour when
+daylight saving time ends, within one clock hour) are averaged, with a
+warning. Many conflicting times outside one clock hour stop (a logger
+fault).
+
+The values (after cf) are checked. Impossible values stop: temperature
+outside -60 to 60 C (Kelvin and Fahrenheit are suggested), RH outside 0 to
+110\% or never above 1 (a fraction), wind speed outside 0 to 75 m/s,
+radiation outside -50 to 2000 W/m2 and negative rain. Unusual values give a
+warning that points to a likely unit problem: temperature above 45 C, wind
+speed above 20 m/s (km/h), radiation above 1400 W/m2, or below 50 W/m2 over
+at least 12 hours (MJ m-2 h-1). Wind speed in km/h is not caught when it is
+below 20 km/h. A file with semicolon separators stops, pointing to
+read.WSdata2().
+
+METRIC needs a clear image, so the station radiation at the overpass (Rs)
+should be close to the clear-sky radiation (Rso, ASCE-EWRI 2005, over the
+hour centred on the overpass). A warning is given when Rs/Rso is below 0.8
+(clouds near the station, or a faulty or miscalibrated pyranometer) or
+above 1.1 (units or calibration). It is not checked when Rso is below 200
+W/m2 (low sun).
 }
 \examples{
 csvfile <- system.file("extdata", "apples.csv", package="water")
 MTLfile <- system.file("extdata", "L7.MTL.txt", package="water")
-WS <- read.WSdata(WSdata = csvfile, date.format = "\%d/\%m/\%Y", 
+# wind speed in km/h: cf converts it to m/s
+WS <- read.WSdata(WSdata = csvfile, date.format = "\%d/\%m/\%Y",
                   lat=-35.42222, long= -71.38639, elev=201, height= 2.2,
                   columns=c("date" = 1, "time" = 2, "radiation" = 3,
-                  "wind" = 4, "RH" = 6, "temp" = 7, "rain" = 8), 
-                  MTL = MTLfile)
+                  "wind" = 4, "RH" = 6, "temp" = 7, "rain" = 8),
+                  cf = c(1, 0.2777778, 1), MTL = MTLfile, tz = "America/Santiago")
 print(WS)
-plot(WS, alldata=FALSE)
-plot(WS, alldata=TRUE)
+plot(WS, hourly=FALSE)
+plot(WS, hourly=TRUE)
 }
 \references{
 Landsat 7 Metadata example file available from the U.S. Geological Survey.
 Weather Station example file courtesy of CITRA, Universidad de Talca, Chile
+
+ASCE-EWRI (2005). The ASCE Standardized Reference Evapotranspiration
+Equation. Report of the ASCE-EWRI Task Committee on Standardization of
+Reference Evapotranspiration.
 }
 \seealso{
-\code{\link{read.WSdata2}} for the equivalent using read.csv2()
+\code{\link{read.WSdata2}} for files with semicolon separators and
+decimal commas (read.csv2())
 
-Other Weather station related functions: \code{\link{plot.waterWeatherStation}},
-  \code{\link{print.waterWeatherStation}},
-  \code{\link{read.WSdata2}}
+Other Weather station related functions:
+\code{\link[=getDataWS]{getDataWS()}},
+\code{\link[=plot.waterWeatherStation]{plot.waterWeatherStation()}},
+\code{\link[=print.waterWeatherStation]{print.waterWeatherStation()}},
+\code{\link[=read.WSdata2]{read.WSdata2()}}
 }
 \author{
 Guillermo Federico Olmedo
 }
+\concept{Weather station related functions}

@@ -1,35 +1,33 @@
-## ---- message=FALSE------------------------------------------------------
+## ----message=FALSE------------------------------------------------------------
 library(water)
 
 
-## ------------------------------------------------------------------------
-aoi <- createAoi(topleft = c(272955, 6085705), 
-                 bottomright = c( 288195, 6073195), EPSG = 32719)
-
-## ------------------------------------------------------------------------
+## -----------------------------------------------------------------------------
 csvfile <- system.file("extdata", "apples.csv", package="water")
 MTLfile <- system.file("extdata", "L7.MTL.txt", package="water")
-WeatherStation <- read.WSdata(WSdata = csvfile, date.format = "%d/%m/%Y", 
+# the wind speed in apples.csv is in km/h: cf converts it to m/s
+WeatherStation <- read.WSdata(WSdata = csvfile, date.format = "%d/%m/%Y",
                               lat=-35.42222, long= -71.38639, elev=201, height= 2.2,
                               columns=c("date" = 1, "time" = 2, "radiation" = 3,
-                              "wind" = 4, "RH" = 6, "temp" = 7, "rain" = 8), 
-                              MTL = MTLfile)
+                              "wind" = 4, "RH" = 6, "temp" = 7, "rain" = 8),
+                              cf = c(1, 0.2777778, 1), MTL = MTLfile,
+                              tz = "America/Santiago")
 
-## ---- fig.width = 5------------------------------------------------------
-print(WeatherStation, hourly=FALSE)
+## ----fig.width = 5------------------------------------------------------------
+print(WeatherStation)
 
 plot(WeatherStation, hourly=TRUE)
 
-## ---- fig.width = 5------------------------------------------------------
-image.DN <- L7_Talca
+## ----fig.width = 5------------------------------------------------------------
+image.DN <- rast(L7_Talca)
 
-## ------------------------------------------------------------------------
-checkSRTMgrids(image.DN)
+## ----eval = FALSE-------------------------------------------------------------
+# DEM <- getDEM(image.DN)
 
-## ------------------------------------------------------------------------
-DEM <- DEM_Talca
+## -----------------------------------------------------------------------------
+DEM <- rast(DEM_Talca)
 
-## ---- fig.width = 5------------------------------------------------------
+## ----fig.width = 5------------------------------------------------------------
 surface.model <-METRICtopo(DEM)
 
 solar.angles.r <- solarAngles(surface.model = surface.model, 
@@ -41,7 +39,7 @@ Rs.inc <- incSWradiation(surface.model = surface.model,
                          solar.angles = solar.angles.r, 
                          WeatherStation = WeatherStation)
 
-## ---- fig.width=5, warning=FALSE-----------------------------------------
+## ----fig.width=5, warning=FALSE-----------------------------------------------
 image.TOAr <- calcTOAr(image.DN = image.DN, sat="L7", MTL = MTLfile, 
                        incidence.rel = solar.angles.r$incidence.rel)
 
@@ -52,12 +50,12 @@ image.SR <- calcSR(image.TOAr=image.TOAr, sat = "L7",
 
 albedo <- albedo(image.SR = image.SR,  coeff="Tasumi", sat="L7")
 
-## ---- fig.width = 5------------------------------------------------------
+## ----fig.width = 5------------------------------------------------------------
 LAI <- LAI(method = "metric2010", image = image.TOAr, L=0.1)
 
 plot(LAI)
 
-## ---- warning=FALSE, fig.width = 5---------------------------------------
+## ----warning=FALSE, fig.width = 5---------------------------------------------
 Ts <- surfaceTemperature(image.DN=image.DN, LAI=LAI, sat = "L7", 
                          WeatherStation = WeatherStation)
 
@@ -66,34 +64,35 @@ Rl.out <- outLWradiation(LAI = LAI, Ts=Ts)
 Rl.inc <- incLWradiation(WeatherStation,DEM = surface.model$DEM, 
                          solar.angles = solar.angles.r, Ts= Ts)
 
-## ---- fig.width = 5------------------------------------------------------
+## ----fig.width = 5------------------------------------------------------------
 Rn <- netRadiation(LAI, albedo, Rs.inc, Rl.inc, Rl.out)
 
 plot(Rn)
 
-## ----Soil Heat Flux, fig.width=5-----------------------------------------
+## ----Soil Heat Flux, fig.width=5----------------------------------------------
 G <- soilHeatFlux(image = image.SR, Ts=Ts,albedo=albedo, 
                   Rn=Rn, LAI=LAI)
 
 plot(G)
 
-## ----Ts, fig.width=5-----------------------------------------------------
+## ----Ts, fig.width=5----------------------------------------------------------
 Z.om <- momentumRoughnessLength(LAI=LAI, mountainous = TRUE, 
                                 method = "short.crops", 
                                 surface.model = surface.model)
 
-hot.and.cold <- calcAnchors(image = image.TOAr, Ts = Ts, LAI = LAI, plots = F,
+hot.and.cold <- calcAnchors(image = image.TOAr, Ts = Ts, LAI = LAI, plots = FALSE,
                             albedo = albedo, Z.om = Z.om, n = 5, 
-                            anchors.method = "CITRA-MCB", deltaTemp = 5, 
+                            anchors.method = "best", deltaTemp = 5,
                             WeatherStation = WeatherStation, verbose = FALSE)
 
 H <- calcH(anchors = hot.and.cold, Ts = Ts, Z.om = Z.om, 
            WeatherStation = WeatherStation, ETp.coef = 1.05,
            Z.om.ws = 0.03, DEM = DEM, Rn = Rn, G = G, verbose = FALSE)
 
-## ------------------------------------------------------------------------
+## -----------------------------------------------------------------------------
 ET_WS <- dailyET(WeatherStation = WeatherStation, MTL = MTLfile)
 
-## ---- fig.width = 5------------------------------------------------------
+## ----fig.width = 5------------------------------------------------------------
 ET.24 <- ET24h(Rn, G, H$H, Ts, WeatherStation = WeatherStation, ETr.daily=ET_WS)
+plot(ET.24$ET24)
 

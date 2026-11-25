@@ -2,31 +2,59 @@
 % Please edit documentation in R/water_RSfunctions.R
 \name{calcRadiance}
 \alias{calcRadiance}
-\title{Calculates radiance}
+\title{Calculates at-sensor radiance}
 \usage{
 calcRadiance(image.DN, sat = "auto", MTL)
 }
 \arguments{
-\item{image.DN}{raw image in digital numbers}
+\item{image.DN}{raw image in digital numbers, e.g. from loadImage().
+Bands B, G, R, NIR, SWIR1, SWIR2, Thermal1 and Thermal2 (L8/L9) are used.
+Layers are selected by name; a stack without the standard names is used by
+position, with a warning, and a stack with these names that lacks a needed
+layer is an error.}
 
-\item{sat}{"L7" for Landsat 7, "L8" for Landsat 8 or "auto" to guess from filenames}
+\item{sat}{"L7", "L8", "L9" or "auto" to detect it from the MTL
+file (MTL is then required)}
 
-\item{MTL}{Landsat Metadata File}
+\item{MTL}{path to the Landsat metadata (*_MTL.txt) file.
+Required}
+}
+\value{
+SpatRaster with at-sensor spectral radiance (W m-2 sr-1 um-1) in
+layers B, G, R, NIR, SWIR1, SWIR2, Thermal1 and, for Landsat 8/9, Thermal2.
 }
 \description{
-This function calculates radiance
+Converts digital numbers to at-sensor spectral radiance using the
+RADIANCE_MULT_BAND_x and RADIANCE_ADD_BAND_x values of the MTL file.
+}
+\examples{
+# a small window of the Landsat 7 example scene, to run quickly
+MTL <- system.file("extdata", "L7.MTL.txt", package = "water")
+WeatherStation <- read.WSdata(WSdata = system.file("extdata", "apples.csv", package = "water"),
+  date.format = "\%d/\%m/\%Y", lat = -35.42222, long = -71.38639, elev = 201, height = 2.2,
+  cf = c(1, 0.2777778, 1), tz = "America/Santiago", MTL = MTL)
+image.DN <- terra::rast(L7_Talca)[1:60, 1:80, drop = FALSE]
+DEM <- terra::rast(DEM_Talca)[1:60, 1:80, drop = FALSE]
+calcRadiance(image.DN, sat = "L7", MTL = MTL)
 }
 \references{
 R. G. Allen, M. Tasumi, and R. Trezza, "Satellite-based energy balance for mapping evapotranspiration with internalized calibration (METRIC) - Model" Journal of Irrigation and Drainage Engineering, vol. 133, p. 380, 2007 \cr
+
 LPSO. (2004). Landsat 7 science data users handbook, Landsat Project Science Office, NASA Goddard Space Flight Center, Greenbelt, Md., (http://landsathandbook.gsfc.nasa.gov/) (Feb. 5, 2007) \cr
+
+U.S. Geological Survey (2019). Landsat 8 (L8) Data Users Handbook, LSDS-1574. EROS, Sioux Falls, South Dakota. https://www.usgs.gov/landsat-missions/landsat-8-data-users-handbook \cr
 }
 \seealso{
-Other remote sensing support functions: \code{\link{calcSR}},
-  \code{\link{calcTOAr}}, \code{\link{cfmask}},
-  \code{\link{loadImageSR}}, \code{\link{loadImage}}
+Other remote sensing support functions:
+\code{\link[=calcSR]{calcSR()}},
+\code{\link[=calcTOAr]{calcTOAr()}},
+\code{\link[=cfmask]{cfmask()}},
+\code{\link[=loadImage]{loadImage()}},
+\code{\link[=loadImageSR]{loadImageSR()}}
 }
 \author{
 Guillermo Federico Olmedo
 
 María Victoria Munafó
 }
+\concept{remote sensing support functions}

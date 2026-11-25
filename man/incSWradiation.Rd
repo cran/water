@@ -4,33 +4,67 @@
 \alias{incSWradiation}
 \title{Calculates Incoming Solar Radiation}
 \usage{
-incSWradiation(surface.model, solar.angles, WeatherStation)
+incSWradiation(surface.model, solar.angles, WeatherStation, Kt = 1)
 }
 \arguments{
-\item{surface.model}{rasterStack with DEM, Slope and Aspect. See surface.model()}
+\item{surface.model}{SpatRaster with layers DEM, Slope and Aspect, from
+METRICtopo()}
 
-\item{solar.angles}{rasterStack with latitude, declination, hour.angle, incidence.hor and incidence.rel. See solarAngles()}
+\item{solar.angles}{SpatRaster with layers latitude, declination,
+hour.angle, incidence.hor and incidence.rel (radians), from solarAngles()}
 
-\item{WeatherStation}{Weather Station data}
+\item{WeatherStation}{waterWeatherStation object (see \code{\link{read.WSdata}}) or the
+data.frame returned by getDataWS()}
+
+\item{Kt}{clearness (turbidity) coefficient of the atmosphere,
+0 < Kt <= 1: 1 (default) for clean air, 0.5 for extremely turbid, dusty or
+polluted air (Allen et al., 2007). See \code{\link{SWtransmissivity}}}
+}
+\value{
+SpatRaster with incoming short-wave radiation (W/m2) at the time of
+the satellite overpass. Slopes facing away from the sun (cosine of the
+incidence angle below 0) get no direct radiation.
 }
 \description{
-This function calculates incoming solar radiation from surface model and solar angles.
+This function calculates incoming solar radiation from the surface model,
+the solar angles and the weather station data.
+}
+\examples{
+# a small window of the Landsat 7 example scene, to run quickly
+MTL <- system.file("extdata", "L7.MTL.txt", package = "water")
+WeatherStation <- read.WSdata(WSdata = system.file("extdata", "apples.csv", package = "water"),
+  date.format = "\%d/\%m/\%Y", lat = -35.42222, long = -71.38639, elev = 201, height = 2.2,
+  cf = c(1, 0.2777778, 1), tz = "America/Santiago", MTL = MTL)
+image.DN <- terra::rast(L7_Talca)[1:60, 1:80, drop = FALSE]
+DEM <- terra::rast(DEM_Talca)[1:60, 1:80, drop = FALSE]
+surface.model <- METRICtopo(DEM)
+solar.angles <- solarAngles(surface.model = surface.model,
+                            WeatherStation = WeatherStation, MTL = MTL)
+Rs.inc <- incSWradiation(surface.model = surface.model, solar.angles = solar.angles,
+                         WeatherStation = WeatherStation)
+plot(Rs.inc)
 }
 \references{
 R. G. Allen, M. Tasumi, and R. Trezza, "Satellite-based energy balance for mapping evapotranspiration with internalized calibration (METRIC) - Model" Journal of Irrigation and Drainage Engineering, vol. 133, p. 380, 2007 \cr
 }
 \seealso{
-Other net radiation related functions: \code{\link{LAI}},
-  \code{\link{METRICtopo}}, \code{\link{SWtrasmisivity}},
-  \code{\link{albedo}}, \code{\link{incLWradiation}},
-  \code{\link{netRadiation}}, \code{\link{outLWradiation}},
-  \code{\link{soilHeatFlux}}, \code{\link{solarAngles}},
-  \code{\link{surfaceTemperature}}
+Other net radiation related functions:
+\code{\link[=LAI]{LAI()}},
+\code{\link[=METRICtopo]{METRICtopo()}},
+\code{\link[=SWtransmissivity]{SWtransmissivity()}},
+\code{\link[=albedo]{albedo()}},
+\code{\link[=incLWradiation]{incLWradiation()}},
+\code{\link[=netRadiation]{netRadiation()}},
+\code{\link[=outLWradiation]{outLWradiation()}},
+\code{\link[=soilHeatFlux]{soilHeatFlux()}},
+\code{\link[=solarAngles]{solarAngles()}},
+\code{\link[=surfaceTemperature]{surfaceTemperature()}}
 }
 \author{
 Guillermo Federico Olmedo
 
-Daniel de la Fuente Saiz
+Daniel de la Fuente-Sáiz
 
-Fonseca-Luengo, David
+David Fonseca-Luengo
 }
+\concept{net radiation related functions}

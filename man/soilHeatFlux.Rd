@@ -4,40 +4,85 @@
 \alias{soilHeatFlux}
 \title{Estimates Soil Heat Flux}
 \usage{
-soilHeatFlux(image, Ts, albedo, LAI, Rn, aoi, method = "Tasumi")
+soilHeatFlux(image, Ts, albedo, LAI, Rn, method = "Tasumi", aoi)
 }
 \arguments{
-\item{image}{surface reflectance image}
+\item{image}{surface reflectance SpatRaster with layers named R and NIR,
+used for NDVI (a stack without standard names: the third and fourth layers,
+with a warning; a named stack without R or NIR is an error)}
 
-\item{Ts}{Land surface temperature. See surfaceTemperature()}
+\item{Ts}{land surface temperature (K), from surfaceTemperature()}
 
-\item{albedo}{broadband surface albedo. See albedo()}
+\item{albedo}{broadband surface albedo, from albedo()}
 
-\item{LAI}{raster layer with leaf area index. See LAI()}
+\item{LAI}{SpatRaster with leaf area index, from LAI()}
 
-\item{Rn}{Net radiation. See netRadiation()}
+\item{Rn}{net radiation (W/m2), from netRadiation()}
 
-\item{aoi}{area of interest to crop images, if waterOptions("autoAoi") == TRUE will look for any object called aoi on .GlobalEnv}
+\item{method}{method used for the G estimation: "Tasumi" (Tasumi, 2003;
+default) or "Bastiaanssen" (Bastiaanssen, 2000)}
 
-\item{method}{method used for the G estimation. Currently implemeted are 
-"Tasumi" for Tasumi,2003 or "Bastiaanssen" for Bastiaanssen, 2000}
+\item{aoi}{Not used (a warning is given when it is passed); kept for
+backward compatibility}
+}
+\value{
+SpatRaster with soil heat flux (W/m2).
 }
 \description{
-This function implements models to estimate soil heat flux for different surfaces and considering different inputs.
+This function implements models to estimate soil heat flux for different
+surfaces and considering different inputs.
+}
+\examples{
+# a small window of the Landsat 7 example scene, to run quickly
+MTL <- system.file("extdata", "L7.MTL.txt", package = "water")
+WeatherStation <- read.WSdata(WSdata = system.file("extdata", "apples.csv", package = "water"),
+  date.format = "\%d/\%m/\%Y", lat = -35.42222, long = -71.38639, elev = 201, height = 2.2,
+  cf = c(1, 0.2777778, 1), tz = "America/Santiago", MTL = MTL)
+image.DN <- terra::rast(L7_Talca)[1:60, 1:80, drop = FALSE]
+DEM <- terra::rast(DEM_Talca)[1:60, 1:80, drop = FALSE]
+surface.model <- METRICtopo(DEM)
+solar.angles <- solarAngles(surface.model = surface.model,
+                            WeatherStation = WeatherStation, MTL = MTL)
+Rs.inc <- incSWradiation(surface.model = surface.model, solar.angles = solar.angles,
+                         WeatherStation = WeatherStation)
+image.TOAr <- calcTOAr(image.DN, sat = "L7", MTL = MTL,
+                       incidence.rel = solar.angles$incidence.rel)
+image.SR <- suppressWarnings(calcSR(image.TOAr, sat = "L7", surface.model = surface.model,
+                   incidence.hor = solar.angles$incidence.hor, WeatherStation = WeatherStation))
+albedo <- albedo(image.SR, coeff = "Tasumi", sat = "L7")
+LAI <- LAI(method = "metric2010", image = image.TOAr, L = 0.1)
+Ts <- suppressWarnings(surfaceTemperature(image.DN = image.DN, LAI = LAI, sat = "L7",
+                                          WeatherStation = WeatherStation))
+Rl.out <- outLWradiation(LAI = LAI, Ts = Ts)
+Rl.inc <- incLWradiation(WeatherStation, DEM = surface.model$DEM,
+                         solar.angles = solar.angles, Ts = Ts)
+Rn <- netRadiation(LAI, albedo, Rs.inc, Rl.inc, Rl.out)
+G <- soilHeatFlux(image = image.SR, Ts = Ts, albedo = albedo, Rn = Rn, LAI = LAI)
+plot(G)
 }
 \references{
 R. G. Allen, M. Tasumi, and R. Trezza, "Satellite-based energy balance for mapping evapotranspiration with internalized calibration (METRIC) - Model" Journal of Irrigation and Drainage Engineering, vol. 133, p. 380, 2007 \cr
+
+Tasumi, M. (2003). Progress in operational estimation of regional evapotranspiration using satellite imagery. Ph.D. dissertation, University of Idaho, Moscow, Idaho. \cr
+
+Bastiaanssen, W. G. M. (2000). SEBAL-based sensible and latent heat fluxes in the irrigated Gediz Basin, Turkey. Journal of Hydrology, 229(1-2), 87-100. https://doi.org/10.1016/S0022-1694(99)00202-4 \cr
 }
 \seealso{
-Other net radiation related functions: \code{\link{LAI}},
-  \code{\link{METRICtopo}}, \code{\link{SWtrasmisivity}},
-  \code{\link{albedo}}, \code{\link{incLWradiation}},
-  \code{\link{incSWradiation}}, \code{\link{netRadiation}},
-  \code{\link{outLWradiation}}, \code{\link{solarAngles}},
-  \code{\link{surfaceTemperature}}
+Other net radiation related functions:
+\code{\link[=LAI]{LAI()}},
+\code{\link[=METRICtopo]{METRICtopo()}},
+\code{\link[=SWtransmissivity]{SWtransmissivity()}},
+\code{\link[=albedo]{albedo()}},
+\code{\link[=incLWradiation]{incLWradiation()}},
+\code{\link[=incSWradiation]{incSWradiation()}},
+\code{\link[=netRadiation]{netRadiation()}},
+\code{\link[=outLWradiation]{outLWradiation()}},
+\code{\link[=solarAngles]{solarAngles()}},
+\code{\link[=surfaceTemperature]{surfaceTemperature()}}
 }
 \author{
 Guillermo Federico Olmedo
 
-Fonseca-Luengo, David
+David Fonseca-Luengo
 }
+\concept{net radiation related functions}

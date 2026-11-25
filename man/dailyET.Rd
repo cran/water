@@ -2,55 +2,102 @@
 % Please edit documentation in R/water_ET.R
 \name{dailyET}
 \alias{dailyET}
-\title{Calculates daily ET using Penman Monteith hourly formula for every hour}
+\title{Calculates daily reference ET as the sum of hourly Penman-Monteith values}
 \usage{
-dailyET(WeatherStation, DOY, height, lat, long, elev, ET = "ETr",
-  long.z = WeatherStation$long, date = "auto", MTL)
+dailyET(
+  WeatherStation,
+  DOY,
+  height,
+  lat,
+  long,
+  elev,
+  ET = "ETr",
+  long.z = NULL,
+  date = "auto",
+  MTL
+)
 }
 \arguments{
-\item{WeatherStation}{a data frame with all the needed fields (see example)}
+\item{WeatherStation}{waterWeatherStation object, see \code{\link{read.WSdata}}.
+Required (other inputs stop)}
 
-\item{DOY}{day of year}
+\item{DOY}{Not used}
 
-\item{height}{weather station sensors height in meters}
+\item{height}{weather station sensors height in meters. If missing, taken
+from WeatherStation}
 
-\item{lat}{latitude in decimal degrees of the weather station}
+\item{lat}{latitude in decimal degrees of the weather station. If
+missing, taken from WeatherStation}
 
-\item{long}{longitude in decimal degrees of the weather station}
+\item{long}{longitude in decimal degrees of the weather station. If
+missing, taken from WeatherStation}
 
-\item{elev}{elevation in meters of the weather station}
+\item{elev}{elevation in meters of the weather station. If missing,
+taken from WeatherStation}
 
 \item{ET}{"ETo" for short crops, similar to clipped, cool-season
-grass; or "ETr" for tall crops, similar to 0.5 m tall full-cover alfalfa.}
+grass; or "ETr" (default) for tall crops, similar to 0.5 m tall full-cover
+alfalfa.}
 
-\item{long.z}{longitude for local time}
+\item{long.z}{longitude of the centre of the time zone of the weather
+station clock (decimal degrees, negative west). By default it is computed
+from the time zone of the records; see \code{\link{hourlyET}}}
 
-\item{date}{if date == "auto" will use a MTL file provided or present in 
-the working folder to select the date.}
+\item{date}{"auto" (default) uses the acquisition date in the MTL file
+or, without MTL, the date of the conditions at the overpass of
+WeatherStation (at.sat); otherwise a date (e.g. "2016-02-09") present in the
+weather station data, taken in the time zone of the station records.
+Without MTL, date or at.sat, dailyET() stops}
 
-\item{MTL}{Metadata file. If not provided will look for one on
-working directory. If provided or present will calculate weather conditions
-on satellite overpass.}
+\item{MTL}{path to the Landsat metadata (*_MTL.txt) file. Optional:
+the day of the overpass in the time zone of the station selects the day
+(see date)}
 }
 \value{
-ET      daily in mm.h-1
+Numeric. Daily reference ET (mm/day): the sum of the hourly values
+of the day. If the records do not cover the whole day, NA with a warning
+(only the last period, ending at 24:00, may be missing: it is then left
+out, with a message).
 }
 \description{
-Calculates daily ET using Penman Monteith hourly formula for every hour
+Sums the hourly reference ET (ASCE standardized Penman-Monteith equation,
+see \code{\link{hourlyET}}) of the hourly weather station values of one day,
+in the time zone of the station records: the day of the satellite overpass
+or another day.
+}
+\details{
+As in ASCE-EWRI (2005), the day is the 24 hourly periods ending at 01:00 to
+24:00 (00:00 of the next day); 23 or 25 periods on days when daylight saving
+time starts or ends. The cloudiness function of the net long-wave radiation
+is computed while the sun is higher than 0.3 rad, and its last value is
+carried over dusk, night and dawn (Eq. 46); before the first sunny period
+the previous evening is used, or the last sunny period of the day if the
+records do not include the previous day.
 }
 \examples{
 csvfile <- system.file("extdata", "apples.csv", package="water")
 
-WeatherStation <- read.WSdata(WSdata = csvfile, date.format = "\%d/\%m/\%Y", 
-lat=-35.42222, long= -71.38639, elev=201, height= 2.2, cf=c(1,0.2777778,1,1))
+WeatherStation <- read.WSdata(WSdata = csvfile, date.format = "\%d/\%m/\%Y",
+lat=-35.42222, long= -71.38639, elev=201, height= 2.2, cf=c(1,0.2777778,1),
+tz = "America/Santiago")
 
-dailyET(WeatherStation = WeatherStation, lat=-35.422, long=-71.386, elev=124, 
-ET="ETo")
+dailyET(WeatherStation = WeatherStation, ET="ETo", date = "2013-02-15")
 
 }
 \references{
-Allen 2005 ASCE
+ASCE-EWRI (2005). The ASCE Standardized Reference Evapotranspiration
+Equation. Report of the ASCE-EWRI Task Committee on Standardization of
+Reference Evapotranspiration.
+}
+\seealso{
+Other ET functions:
+\code{\link[=Crad]{Crad()}},
+\code{\link[=ET24h]{ET24h()}},
+\code{\link[=ETperiod]{ETperiod()}},
+\code{\link[=dailyETseries]{dailyETseries()}},
+\code{\link[=hourlyET]{hourlyET()}}
 }
 \author{
 Guillermo Federico Olmedo
 }
+\concept{ET functions}

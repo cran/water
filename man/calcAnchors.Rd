@@ -2,61 +2,190 @@
 % Please edit documentation in R/water_sensibleHeatFlux.R
 \name{calcAnchors}
 \alias{calcAnchors}
-\title{Select anchors pixels for H function}
+\title{Select anchor pixels for the H function}
 \usage{
-calcAnchors(image, Ts, LAI, albedo, Z.om, n = 1, aoi,
-  anchors.method = "flexible", WeatherStation, plots = TRUE,
-  deltaTemp = 5, minDist = 500, WSbuffer = 30000, verbose = FALSE)
+calcAnchors(
+  image,
+  Ts,
+  LAI,
+  albedo,
+  Z.om,
+  n = 1,
+  anchors.method = "percentile",
+  WeatherStation,
+  plots = interactive(),
+  deltaTemp = 5,
+  minDist = 500,
+  WSbuffer = 30000,
+  verbose = FALSE,
+  min.candidates = 20,
+  control = NULL,
+  aoi
+)
 }
 \arguments{
-\item{image}{top-of-atmosphere landsat reflectance image}
+\item{image}{reflectance SpatRaster (top-of-atmosphere
+reflectance, or surface reflectance when no DN image is available) with
+layers named R and NIR, used to compute NDVI.
+Layers are selected by name; a stack without the standard names is used by
+position, with a warning, and a stack with these names that lacks a needed
+layer is an error.}
 
-\item{Ts}{land surface temperature in K. See surfaceTemperature()}
+\item{Ts}{land surface temperature in K. See \code{\link{surfaceTemperature}}.
+Must be in Kelvin: values that look like Celsius, or more than 1\% of the
+cells below 200 K (unmasked fill or clouds), stop; fewer cells below 200 K
+give a warning.}
 
-\item{LAI}{rasterLayer with Leaf Area Index. See LAI()}
+\item{LAI}{SpatRaster with leaf area index, from LAI()}
 
-\item{albedo}{broandband surface albedo. See albedo()}
+\item{albedo}{broadband surface albedo, from albedo()}
 
-\item{Z.om}{momentum roughness lenght. See momentumRoughnessLength()}
+\item{Z.om}{momentum roughness length, from momentumRoughnessLength()}
 
-\item{n}{number of pair of anchors pixels to calculate}
+\item{n}{number of pairs of anchor pixels to select (not used
+by "percentile")}
 
-\item{aoi}{area of interest to limit the search. If 
-waterOptions(autoAOI) == TRUE, It'll use aoi object from .GlobalEnv}
+\item{anchors.method}{method for the selection of anchor pixels:
+"percentile" (default), "flexible", "best" or "random". See Details.}
 
-\item{anchors.method}{method for the selection of anchor pixels. "random" for
-random selection of hot and cold candidates according to CITRA-MCB method, or 
-"best" for selecting the best candidates. And "flexible" for method with soft
-limits to the anchor pixel conditions.}
+\item{WeatherStation}{Optional. waterWeatherStation object (see
+read.WSdata()). If supplied, the anchors are searched within WSbuffer of the
+station}
 
-\item{WeatherStation}{Optional. WeatherStation data at the satellite overpass. 
-Should be a waterWeatherStation object calculated using read.WSdata and MTL file.}
+\item{plots}{Logical. If TRUE (default: only in interactive
+sessions) the anchors are plotted over LAI: hot in red, cold in blue and the
+weather station (if supplied) in black}
 
-\item{plots}{Logical. If TRUE will plot position of anchors points
-selected. Points in red are selected hot pixels, blue are the cold ones and the 
-black represents the position of the Weather Station}
+\item{deltaTemp}{(not used by "percentile") temperature margin (K,
+default 5): cold candidates must
+be colder than the 5\% quantile of Ts over well-vegetated pixels plus
+deltaTemp, and hot candidates warmer than the maximum Ts over bare-soil
+pixels minus deltaTemp}
 
-\item{deltaTemp}{deltaTemp for method "CITRA-MCBs" or "CITRA-MCBr"}
+\item{minDist}{(not used by "percentile") minimum distance (m)
+between two anchor pixels of the same type}
 
-\item{minDist}{minimun distance allowed for two anchor pixels of the 
-same type (in meters).}
+\item{WSbuffer}{maximum distance (m) to the weather station. If no
+pixel is within WSbuffer, the whole image is used, with a warning}
 
-\item{WSbuffer}{maximun distante to the Weather Station (in meters).}
+\item{verbose}{Logical. If TRUE, additional data are shown (as messages)}
 
-\item{verbose}{Logical. If TRUE will print aditional data to console}
+\item{min.candidates}{minimum number of hot and of cold candidates (default
+20) below which a warning is given: the area may be too small or too
+homogeneous for the calibration}
+
+\item{control}{a list from \code{\link{anchors.control}}; only its
+percentile parameters are read (cold.NDVI, cold.LAI, cold.fraction,
+hot.NDVI, hot.fraction and homogeneity): deltaTemp, minDist, WSbuffer and
+min.candidates are arguments of calcAnchors(). METRIC.EB() fills both from
+its anchors.control}
+
+\item{aoi}{Not used (a warning is given when it is passed); kept for
+backward compatibility}
+}
+\value{
+A data.frame with one row per anchor pixel and columns pixel (cell
+number), X and Y (cell coordinates in the CRS of Ts), Ts (K), LAI, NDVI and
+type ("hot" or "cold"). For anchors.method = "flexible" a column flex is
+added: the relaxation applied to the criteria of each type (0 = none, 1 =
+100\%). Attribute candidates gives the number of cold and hot candidates
+and, for "flexible" and "percentile", attribute relaxation the criteria
+used. If plots =
+TRUE the anchors are also plotted over LAI.
 }
 \description{
-automatically search end members within the satellite scene (extreme wet and dry conditions).
+Automatically searches for end members (anchor
+pixels) within the satellite scene (extreme wet and dry conditions): cold
+pixels with well-watered full-cover vegetation and hot pixels with dry bare
+soil.
+}
+\details{
+anchors.method = "percentile" (default) uses criteria relative to the
+scene, in the spirit of the automated calibration of Allen et al. (2013)
+and Morton et al. (2013): cold candidates are full-cover vegetation, with
+NDVI at or above its 95th percentile in the area and LAI of at least 4;
+hot candidates are bare soil, with NDVI at or below its 10th percentile,
+NDVI above 0 (no water) and albedo 0.10 to 0.35 (no urban surfaces or
+bright rock). Candidates must have a homogeneous surface temperature (sd of
+Ts in the 5 x 5 pixels around them up to 1.5 K). The coldest 20\% of the
+cold candidates and the hottest 20\% of the hot candidates are the anchors,
+and calcH() uses their means. The candidates are searched within WSbuffer
+of the weather station, or in the whole image if there are none. The NDVI
+quantiles are taken over land (NDVI > 0), so water in the area does not
+move them. If no candidate is homogeneous, the homogeneity test is dropped;
+if there are no cold candidates, cold.LAI is lowered to 3 and then
+cold.NDVI to the 0.85 quantile; if there are no hot candidates, hot.NDVI is
+raised to the 0.3 quantile. Attribute relaxation records what was relaxed.
+The parameters are in \code{\link{anchors.control}}.
+
+For the other methods, cold candidates have LAI 3 to 6, albedo 0.18 to 0.25, Z.om 0.03 to 0.08, NDVI
+within 0.15 of the maximum NDVI of the image and Ts below the threshold given
+by deltaTemp. Hot candidates have albedo 0.13 to 0.15, NDVI 0.1 to 0.28,
+Z.om up to 0.005 and Ts above the threshold given by deltaTemp.
+
+anchors.method = "best" selects the coldest and the hottest candidates;
+"random" selects them at random among the candidates (CITRA-MCB method);
+"flexible" works like "best" but, when there are not enough
+candidates, relaxes the limits of the criteria (LAI, albedo and Z.om for cold
+pixels; albedo, NDVI, Z.om and Ts for hot pixels) in 1\% steps up to 100\%,
+first near the weather station (within WSbuffer) and then in the whole
+image, with a warning. The old names "CITRA-MCB" and "CITRA-MCBbc" (now
+"best") and "CITRA-MCBr" (now "random") are deprecated.
+}
+\examples{
+# a small window of the Landsat 7 example scene, to run quickly
+MTL <- system.file("extdata", "L7.MTL.txt", package = "water")
+WeatherStation <- read.WSdata(WSdata = system.file("extdata", "apples.csv", package = "water"),
+  date.format = "\%d/\%m/\%Y", lat = -35.42222, long = -71.38639, elev = 201, height = 2.2,
+  cf = c(1, 0.2777778, 1), tz = "America/Santiago", MTL = MTL)
+image.DN <- terra::rast(L7_Talca)[1:60, 1:80, drop = FALSE]
+DEM <- terra::rast(DEM_Talca)[1:60, 1:80, drop = FALSE]
+surface.model <- METRICtopo(DEM)
+solar.angles <- solarAngles(surface.model = surface.model,
+                            WeatherStation = WeatherStation, MTL = MTL)
+Rs.inc <- incSWradiation(surface.model = surface.model, solar.angles = solar.angles,
+                         WeatherStation = WeatherStation)
+image.TOAr <- calcTOAr(image.DN, sat = "L7", MTL = MTL,
+                       incidence.rel = solar.angles$incidence.rel)
+image.SR <- suppressWarnings(calcSR(image.TOAr, sat = "L7", surface.model = surface.model,
+                   incidence.hor = solar.angles$incidence.hor, WeatherStation = WeatherStation))
+albedo <- albedo(image.SR, coeff = "Tasumi", sat = "L7")
+LAI <- LAI(method = "metric2010", image = image.TOAr, L = 0.1)
+Ts <- suppressWarnings(surfaceTemperature(image.DN = image.DN, LAI = LAI, sat = "L7",
+                                          WeatherStation = WeatherStation))
+Rl.out <- outLWradiation(LAI = LAI, Ts = Ts)
+Rl.inc <- incLWradiation(WeatherStation, DEM = surface.model$DEM,
+                         solar.angles = solar.angles, Ts = Ts)
+Rn <- netRadiation(LAI, albedo, Rs.inc, Rl.inc, Rl.out)
+G <- soilHeatFlux(image = image.SR, Ts = Ts, albedo = albedo, Rn = Rn, LAI = LAI)
+Z.om <- momentumRoughnessLength(LAI = LAI, mountainous = TRUE, method = "short.crops",
+                                surface.model = surface.model)
+anchors <- calcAnchors(image = image.TOAr, Ts = Ts, LAI = LAI, albedo = albedo, Z.om = Z.om,
+                      WeatherStation = WeatherStation, plots = FALSE, verbose = FALSE)
+head(anchors)
 }
 \references{
-CITRA y MCB (com pers)
+CITRA and MCB (personal communication)
+
+Allen, R. G., Burnett, B., Kramber, W., Huntington, J., Kjaersgaard, J.,
+Kilic, A., Kelly, C., & Trezza, R. (2013). Automated calibration of the
+METRIC-Landsat evapotranspiration process. Journal of the American Water
+Resources Association, 49(3), 563-576. https://doi.org/10.1111/jawr.12056
+
+Morton, C. G., Huntington, J. L., Pohll, G. M., Allen, R. G., McGwire, K. C.,
+& Bassett, S. D. (2013). Assessing calibration uncertainty and automation
+for estimating evapotranspiration from agricultural areas using METRIC.
+Journal of the American Water Resources Association, 49(3), 549-562.
+https://doi.org/10.1111/jawr.12054
 }
 \seealso{
-Other sensible heat flux functions: \code{\link{calcH}},
-  \code{\link{momentumRoughnessLength}}
+Other sensible heat flux functions:
+\code{\link[=calcH]{calcH()}},
+\code{\link[=momentumRoughnessLength]{momentumRoughnessLength()}}
 }
 \author{
 Guillermo Federico Olmedo
 
-de la Fuente-Saiz, Daniel
+Daniel de la Fuente-Sáiz
 }
+\concept{sensible heat flux functions}

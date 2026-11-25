@@ -2,22 +2,46 @@
 % Please edit documentation in R/water_LSEBclass.R
 \name{writeRaster.waterLSEB}
 \alias{writeRaster.waterLSEB}
-\title{writeRaster method for waterLSEB S3 class}
+\alias{writeRaster,waterLSEB,character-method}
+\title{writeRaster method for waterLSEB objects}
 \usage{
-\method{writeRaster}{waterLSEB}(x, ...)
+\S4method{writeRaster}{waterLSEB,character}(x, filename, ...)
 }
 \arguments{
-\item{x}{waterLSEB object.}
+\item{x}{waterLSEB object, from METRIC.EB().}
 
-\item{...}{additional parameters to pass to writeRaster()}
+\item{filename}{output file name, e.g. "EB.tif"}
+
+\item{...}{additional arguments passed to terra::writeRaster(), e.g.
+overwrite}
+}
+\value{
+The SpatRaster written to the file (x$EB), invisibly, as returned by
+terra::writeRaster().
 }
 \description{
-writeRaster method for waterLSEB S3 class
+Writes the energy balance layers (\code{x$EB}) of a
+METRIC.EB() result to a file.
+}
+\examples{
+MTL <- system.file("extdata", "L7.MTL.txt", package = "water")
+WeatherStation <- read.WSdata(WSdata = system.file("extdata", "apples.csv", package = "water"),
+  date.format = "\%d/\%m/\%Y", lat = -35.42222, long = -71.38639, elev = 201, height = 2.2,
+  cf = c(1, 0.2777778, 1), tz = "America/Santiago", MTL = MTL)
+image.DN <- terra::rast(L7_Talca)[1:60, 1:80, drop = FALSE]
+Energy.Balance <- METRIC.EB(image.DN = image.DN, WeatherStation = WeatherStation, MTL = MTL,
+                            sat = "L7", thermalband = image.DN$Thermal1, plain = TRUE)
+# writes the layers of the energy balance as a GeoTIFF file
+writeRaster(Energy.Balance, tempfile(fileext = ".tif"))
 }
 \seealso{
-Other LSEB objects related functions: \code{\link{plot.waterLSEB}},
-  \code{\link{print.waterLSEB}}
+Other LSEB objects related functions:
+\code{\link[=plot.waterLSEB]{plot.waterLSEB()}},
+\code{\link[=plotAnchors]{plotAnchors()}},
+\code{\link[=print.waterLSEB]{print.waterLSEB()}},
+\code{\link[=summary.waterLSEB]{summary.waterLSEB()}}
 }
 \author{
 María Victoria Munafó
 }
+\concept{LSEB objects related functions}

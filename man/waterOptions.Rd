@@ -4,38 +4,66 @@
 \alias{waterOptions}
 \title{Global options for water package}
 \usage{
-waterOptions(overwrite, writeResults, outputFolder, SRTMrepo, autoAoi,
-  default = FALSE)
+waterOptions(
+  overwrite,
+  writeResults,
+  outputFolder,
+  SRTMrepo,
+  autoAoi,
+  default = FALSE
+)
 }
 \arguments{
-\item{overwrite}{Logical. If TRUE and writeResults is TRUE it will 
-overwrite results. If FALSE, results are save with a name with name_datetime.}
+\item{overwrite}{Logical. If TRUE and writeResults is TRUE, the final
+outputs overwrite files of earlier sessions; a file written earlier in the
+same session is never overwritten (an object may still read it): a new name
+is used, with a warning (so, in one session, EB.tif keeps the first result). If FALSE, a time stamp is appended to the file name
+(name_YYYYmmddHHMMSS.tif).}
 
-\item{writeResults}{Logical. If TRUE it'll write result to disk. This is 
-slower but if FALSE you can have out-of-memory problems.}
+\item{writeResults}{Logical. If TRUE (default FALSE) results are written to
+disk as GeoTIFF files: the final outputs (EB from METRIC.EB(), ET24 from
+ET24h(), DEM from getDEM() and prepareSRTMdata()) to outputFolder, and the
+intermediate results to terra's temporary files, with unique names. This is
+slower, but avoids out-of-memory problems with large images. Values are
+stored as 32-bit floats. The temporary files are deleted when the R session
+ends (they can be large for full scenes).}
 
-\item{outputFolder}{Name of a folder to save files, relative to workind
-folder.}
+\item{outputFolder}{Name of a folder to save files, relative to the working
+directory.}
 
-\item{SRTMrepo}{A folder where SRTM grids are stored, to create DEM. See
-prepareSRTMdata()}
+\item{SRTMrepo}{A folder where SRTM grids are stored. Currently not
+used by prepareSRTMdata(); use its path argument}
 
-\item{autoAoi}{Logical. If TRUE it'll look for a object called aoi on 
-.GlobalEnv and use it as aoi. See createAoi()}
+\item{autoAoi}{Deprecated and ignored, with a warning. An object
+called aoi in the workspace is no longer used: pass aoi to loadImage(),
+loadImageSR(), albedo() or the METRIC functions. See \code{\link{createAoi}}}
 
-\item{default}{Logical. If TRUE will revert all options to defaults 
+\item{default}{Logical. If TRUE will revert all options to default
 values}
 }
 \value{
 list of the current options (invisibly). If no arguments are provided the options are printed.
 }
 \description{
-This function is based on raster::rasterOptions by Robert Hijmans.
+Sets or shows the global options of the water package. Inspired by
+rasterOptions() of the raster package (Robert J. Hijmans).
+}
+\examples{
+# show the options
+waterOptions()
 }
 \references{
 Robert J. Hijmans (2015). raster: Geographic Data Analysis and Modeling. R
-package version 2.4-18. http://CRAN.R-project.org/package=raster
+package version 2.4-18. https://CRAN.R-project.org/package=raster
+}
+\seealso{
+Other support functions:
+\code{\link[=checkSRTMgrids]{checkSRTMgrids()}},
+\code{\link[=createAoi]{createAoi()}},
+\code{\link[=getDEM]{getDEM()}},
+\code{\link[=prepareSRTMdata]{prepareSRTMdata()}}
 }
 \author{
-Guillermo F Olmedo, \email{guillermo.olmedo@gmail.com}
+Guillermo Federico Olmedo
 }
+\concept{support functions}

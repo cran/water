@@ -2,39 +2,92 @@
 % Please edit documentation in R/water_RSfunctions.R
 \name{calcSR}
 \alias{calcSR}
-\title{Calculates surface reflectance for L7}
+\title{Calculates surface reflectance for Landsat 7}
 \usage{
-calcSR(image.TOAr, sat = "auto", aoi, incidence.hor, WeatherStation,
-  surface.model)
+calcSR(
+  image.TOAr,
+  sat = "auto",
+  incidence.hor,
+  WeatherStation,
+  surface.model,
+  MTL,
+  Kt = 1,
+  aoi
+)
 }
 \arguments{
-\item{image.TOAr}{raster stack. top of atmosphere reflectance image}
+\item{image.TOAr}{SpatRaster with top-of-atmosphere reflectance in
+layers B, G, R, NIR, SWIR1 and SWIR2, e.g. from calcTOAr().
+Layers are selected by name; a stack without the standard names is used by
+position, with a warning, and a stack with these names that lacks a needed
+layer is an error.}
 
-\item{sat}{"L7" for Landsat 7, "L8" for Landsat 8 or "auto" to guess from filenames}
+\item{sat}{Only "L7" is supported; "L8" and "L9" stop with an
+error. "auto" detects the satellite from the MTL file (MTL is then
+required)}
 
-\item{aoi}{area of interest to crop images, if waterOptions("autoAoi") == TRUE will look for any object called aoi on .GlobalEnv}
+\item{incidence.hor}{solar incidence angle (radians) on a horizontal
+surface, from solarAngles()}
 
-\item{incidence.hor}{solar incidence angle, considering plain surface}
+\item{WeatherStation}{waterWeatherStation object (see \code{\link{read.WSdata}}) or the
+data.frame returned by getDataWS()}
 
-\item{WeatherStation}{Weather Station data}
+\item{surface.model}{SpatRaster with layers DEM, Slope and Aspect, from
+METRICtopo()}
 
-\item{surface.model}{rasterStack with DEM, Slope and Aspect. See surface.model()}
+\item{MTL}{path to the Landsat metadata (*_MTL.txt) file.
+Needed for sat = "auto"}
+
+\item{Kt}{clearness (turbidity) coefficient of the atmosphere,
+0 < Kt <= 1: 1 (default) for clean air, 0.5 for extremely turbid, dusty or
+polluted air (Allen et al., 2007). See \code{\link{SWtransmissivity}}}
+
+\item{aoi}{Not used (a warning is given when it is passed); kept for
+backward compatibility}
+}
+\value{
+SpatRaster with surface reflectance (unitless) in layers B, G, R,
+NIR, SWIR1 and SWIR2.
 }
 \description{
-Calculates surface reflectance from top of atmosphere radiance using the model developed by Tasumi et al. (2008) and Allen et al. (2007), which considers a band-by-band basis.
+Calculates surface reflectance from top-of-atmosphere reflectance using the
+model developed by Tasumi et al. (2008) and Allen et al. (2007), applied band
+by band. Only for Landsat 7: for Landsat 8 and 9 use the Collection 2
+Level-2 surface reflectance (see \code{\link{loadImageSR}}).
+}
+\examples{
+# a small window of the Landsat 7 example scene, to run quickly
+MTL <- system.file("extdata", "L7.MTL.txt", package = "water")
+WeatherStation <- read.WSdata(WSdata = system.file("extdata", "apples.csv", package = "water"),
+  date.format = "\%d/\%m/\%Y", lat = -35.42222, long = -71.38639, elev = 201, height = 2.2,
+  cf = c(1, 0.2777778, 1), tz = "America/Santiago", MTL = MTL)
+image.DN <- terra::rast(L7_Talca)[1:60, 1:80, drop = FALSE]
+DEM <- terra::rast(DEM_Talca)[1:60, 1:80, drop = FALSE]
+surface.model <- METRICtopo(DEM)
+solar.angles <- solarAngles(surface.model = surface.model,
+                            WeatherStation = WeatherStation, MTL = MTL)
+image.TOAr <- calcTOAr(image.DN, sat = "L7", MTL = MTL,
+                       incidence.rel = solar.angles$incidence.rel)
+image.SR <- suppressWarnings(calcSR(image.TOAr, sat = "L7", surface.model = surface.model,
+                   incidence.hor = solar.angles$incidence.hor, WeatherStation = WeatherStation))
+plot(image.SR)
 }
 \references{
-Tasumi M.; Allen R.G. and Trezza, R. At-surface albedo from Landsat and MODIS satellites for use in energy balance studies of evapotranspiration Journal of Hydrolog. Eng., 2008, 13, (51-63) \cr
+Tasumi, M., Allen, R. G., & Trezza, R. (2008). At-surface reflectance and albedo from satellite for operational calculation of land surface energy balance. Journal of Hydrologic Engineering, 13(2), 51-63. https://doi.org/10.1061/(ASCE)1084-0699(2008)13:2(51) \cr
 
 R. G. Allen, M. Tasumi, and R. Trezza, "Satellite-based energy balance for mapping evapotranspiration with internalized calibration (METRIC) - Model" Journal of Irrigation and Drainage Engineering, vol. 133, p. 380, 2007 \cr
 }
 \seealso{
-Other remote sensing support functions: \code{\link{calcRadiance}},
-  \code{\link{calcTOAr}}, \code{\link{cfmask}},
-  \code{\link{loadImageSR}}, \code{\link{loadImage}}
+Other remote sensing support functions:
+\code{\link[=calcRadiance]{calcRadiance()}},
+\code{\link[=calcTOAr]{calcTOAr()}},
+\code{\link[=cfmask]{cfmask()}},
+\code{\link[=loadImage]{loadImage()}},
+\code{\link[=loadImageSR]{loadImageSR()}}
 }
 \author{
 Guillermo Federico Olmedo
 
-Fonseca-Luengo, David
+David Fonseca-Luengo
 }
+\concept{remote sensing support functions}
